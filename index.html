@@ -1,0 +1,620 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="theme-color" content="#4f46e5">
+  <meta name="description" content="Aplikasi Web Absen & Peta Rute Kunjungan MDS">
+  <title>MDS Route & Absen GIS Master</title>
+
+  <!-- Google Fonts: Plus Jakarta Sans -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+
+  <!-- Leaflet Map CSS & JS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+  <!-- Leaflet Marker Cluster -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" />
+  <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+
+  <!-- Custom Stylesheet -->
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+  <!-- Fullscreen Interactive Map -->
+  <div id="map"></div>
+
+  <!-- Toast Notification Container -->
+  <div class="toast-container" id="toastContainer"></div>
+
+  <!-- GPS Floating Locate Button -->
+  <button type="button" class="btn-gps-locate" id="btnGpsLocate" title="Lokasi Saya (GPS)">
+    <i data-lucide="crosshair" style="width: 22px; height: 22px;"></i>
+  </button>
+
+  <!-- Floating UI Overlay Layers -->
+  <div class="overlay-container">
+
+    <!-- Top Overlays -->
+    <div class="overlay-top">
+      
+      <!-- Top Floating Navigation Bar (Row 1: Profile & Actions) -->
+      <header class="top-floating-bar">
+        <!-- Brand & Profile (Spacious & Easy to Click) -->
+        <div class="brand-badge">M</div>
+        
+        <!-- Profile Pill -->
+        <div class="profile-pill" id="btnEditProfile" title="Klik untuk ganti user / profil MDS">
+          <div class="profile-avatar-mini" id="userAvatar">YP</div>
+          <div class="profile-info-block">
+            <span class="profile-name-text" id="userName">Yohandi Pratama</span>
+            <span class="profile-mod-tag" id="userModule">LP4</span>
+          </div>
+          <i data-lucide="chevron-down" class="profile-chevron" style="width: 13px; height: 13px; color: var(--text-muted); margin-left: auto;"></i>
+        </div>
+
+        <!-- Action Buttons -->
+        <div class="top-btn-group">
+          <button type="button" class="btn-icon-mini" id="btnOpenHelpTour" title="Panduan & Tutorial" style="background: var(--primary-light); color: var(--primary);">
+            <i data-lucide="help-circle" style="width: 15px; height: 15px;"></i>
+          </button>
+          <button type="button" class="btn-icon-mini" id="btnThemeToggle" title="Ganti Tema">
+            <i data-lucide="moon" style="width: 15px; height: 15px;"></i>
+          </button>
+          <button type="button" class="btn-icon-mini" id="btnOpenHistory" title="Riwayat">
+            <i data-lucide="clock" style="width: 15px; height: 15px;"></i>
+          </button>
+          <button type="button" class="btn-icon-mini" id="btnOpenSettings" title="Pengaturan">
+            <i data-lucide="settings" style="width: 15px; height: 15px;"></i>
+          </button>
+        </div>
+      </header>
+
+      <!-- Row 2: Route Selector & Tab Switcher (Side-by-side & Spacious) -->
+      <div class="nav-control-row">
+        <!-- Route Selector Pill (DatePicker) -->
+        <div class="route-selector-pill" id="routeDatePickerWrapper" title="Klik untuk pilih tanggal rute di kalender">
+          <i data-lucide="calendar" style="width: 14px; height: 14px; color: var(--primary); flex-shrink: 0;"></i>
+          <span class="route-date-display" id="routeDateDisplay">Rute 2 (Hari Ini)</span>
+          <i data-lucide="chevron-down" style="width: 11px; height: 11px; color: var(--text-muted); margin-left: auto; flex-shrink: 0;"></i>
+          <input type="date" id="ruteDatePicker" class="route-date-input" />
+        </div>
+
+        <!-- Tab Switcher Pill -->
+        <nav class="tab-switcher-floating">
+          <button type="button" class="tab-btn-pill active" id="tabBtnInput" onclick="switchAppView('input')" title="Peta & Pilih Toko">
+            <i data-lucide="map" style="width: 13px; height: 13px;"></i>
+            <span>Peta</span>
+          </button>
+          <button type="button" class="tab-btn-pill" id="tabBtnSchedule" onclick="switchAppView('schedule')" title="Jadwal Terinput">
+            <i data-lucide="calendar-check" style="width: 13px; height: 13px;"></i>
+            <span>Jadwal</span>
+          </button>
+        </nav>
+      </div>
+
+      <!-- Floating Search & Filter Card (Mode Input) -->
+      <div class="floating-search-card" id="floatingSearchCard">
+        <div class="search-input-wrapper">
+          <i data-lucide="search" class="search-icon" style="width: 16px; height: 16px;"></i>
+          <input 
+            type="text" 
+            id="searchInput" 
+            class="search-input" 
+            placeholder="Cari nama toko, kode toko, kecamatan..." 
+            autocomplete="off"
+          >
+          <button type="button" id="searchClear" class="search-clear" title="Bersihkan">
+            <i data-lucide="x" style="width: 14px; height: 14px;"></i>
+          </button>
+        </div>
+
+        <!-- Brand Filter Pills & Custom Store Button -->
+        <div style="display: flex; align-items: center; justify-content: space-between; gap: 6px;">
+          <div class="filter-scroll" style="flex: 1;">
+            <div class="filter-pill active" data-account="ALL">Semua Akun</div>
+            <div class="filter-pill" data-account="INDOMARET">Indomaret</div>
+            <div class="filter-pill" data-account="ALFAMART">Alfamart</div>
+            <div class="filter-pill" data-account="ALFAMIDI">Alfamidi</div>
+            <div class="filter-pill" data-account="LAWSON">Lawson</div>
+          </div>
+          <button type="button" class="btn-icon-mini" id="btnOpenCustomStore" title="Tambah / Edit Toko Manual" style="background: var(--primary-light); color: var(--primary); min-width: 30px;">
+            <i data-lucide="plus-circle" style="width: 15px; height: 15px;"></i>
+          </button>
+        </div>
+
+        <!-- Search Results Drawer (Collapsible) -->
+        <div class="search-results-floating" id="searchResultsFloating">
+          <!-- Compact store cards injected here -->
+        </div>
+      </div>
+
+      <!-- Floating Schedule Header (Mode Jadwal Terinput) -->
+      <div class="floating-search-card" id="floatingScheduleCard" style="display: none;">
+        <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+          <div>
+            <div style="font-size: 13px; font-weight: 700; color: var(--text-main); display: flex; align-items: center; gap: 6px;">
+              <i data-lucide="map-pin" style="width: 14px; height: 14px; color: var(--primary);"></i>
+              <span id="scheduleViewTitle">Jadwal Rute 2</span>
+            </div>
+            <div style="font-size: 11px; color: var(--text-muted); margin-top: 1px;">
+              Modul: <strong id="scheduleViewModule">LP4</strong> &bull; Total: <strong id="scheduleTotalStores">0 Toko</strong>
+            </div>
+          </div>
+          <div style="display: flex; align-items: center; gap: 4px;">
+            <button type="button" class="btn-icon-mini" id="btnToggleScheduleList" title="Buka/Tutup Daftar Toko">
+              <i data-lucide="list" style="width: 14px; height: 14px;"></i>
+            </button>
+            <button type="button" class="btn-icon-mini" id="btnRefreshSchedule" title="Refresh Jadwal">
+              <i data-lucide="refresh-cw" style="width: 14px; height: 14px;"></i>
+            </button>
+            <button type="button" class="btn-primary" id="btnCopyScheduleWA" style="height: 32px; padding: 0 8px; font-size: 11px;">
+              <i data-lucide="copy" style="width: 12px; height: 12px;"></i>
+              <span>Salin WA</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Schedule Items List (Collapsible / Toggleable) -->
+        <div class="search-results-floating" id="scheduleStoreList" style="display: none; max-height: 40vh;">
+          <!-- Schedule stores injected here -->
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Bottom Floating Action Bar -->
+    <div class="overlay-bottom">
+      <aside class="bottom-floating-bar" id="floatingBar">
+        <div>
+          <div style="font-size: 13px; font-weight: 800; color: var(--text-main); display: flex; align-items: center; gap: 6px;" id="summaryCount">
+            <i data-lucide="shopping-bag" style="width: 15px; height: 15px; color: var(--primary);"></i>
+            0 Toko Dipilih
+          </div>
+          <div style="font-size: 11px; color: var(--primary); font-weight: 600;" id="summaryRoute">
+            Siap masuk ke Rute 2
+          </div>
+        </div>
+        <div style="display: flex; align-items: center; gap: 6px;">
+          <button type="button" class="btn-secondary" id="btnViewDrawer">
+            <i data-lucide="list" style="width: 14px; height: 14px;"></i>
+            <span>Review</span>
+          </button>
+          <button type="button" class="btn-primary" id="btnSubmitRoute">
+            <i data-lucide="send" style="width: 14px; height: 14px;"></i>
+            <span>Kirim</span>
+          </button>
+        </div>
+      </aside>
+    </div>
+
+  </div>
+
+  <!-- FULLSCREEN BLOCKING LOADER OVERLAY (Active by default on startup) -->
+  <div class="blocking-loader-backdrop active" id="blockingLoader">
+    <div class="blocking-loader-card">
+      <div class="spinner-glow"></div>
+      <div>
+        <div class="loader-title" id="loaderTitle">Memuat Peta & Data Toko</div>
+        <div class="loader-subtitle" id="loaderSubtitle">Menyiapkan database lokal dan koordinat GPS...</div>
+      </div>
+      <div class="loader-progress-track" id="loaderProgressTrack" style="display: block;">
+        <div class="loader-progress-bar" id="loaderProgressBar" style="width: 25%;"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: Edit Profile -->
+  <div class="modal-backdrop" id="profileModal">
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <div class="modal-title">
+          <i data-lucide="user-check" style="color: var(--primary);"></i>
+          <span>Profil MDS</span>
+        </div>
+        <button type="button" class="btn-icon-mini" onclick="document.getElementById('profileModal').classList.remove('active')">
+          <i data-lucide="x" style="width: 16px; height: 16px;"></i>
+        </button>
+      </div>
+      <form id="profileForm">
+        <div class="modal-body">
+          <div class="form-group">
+            <label class="form-label">Cari & Pilih MDS dari Master Crew</label>
+            <div class="search-input-wrapper" style="margin-bottom: 6px;">
+              <i data-lucide="search" class="search-icon" style="width: 15px; height: 15px;"></i>
+              <input 
+                type="text" 
+                id="crewSearchInput" 
+                class="search-input" 
+                placeholder="Ketik nama MDS, kode crew, atau modul..." 
+                autocomplete="off"
+              >
+            </div>
+            <div id="crewSearchResultsList" class="crew-search-results-list">
+              <div style="padding: 12px; text-align: center; color: var(--text-muted); font-size: 11px;">
+                Memuat daftar crew...
+              </div>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Nama Lengkap MDS *</label>
+            <input type="text" class="form-control" id="profileNameInput" required placeholder="Contoh: Yohandi Pratama">
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Kode Crew / ID AppSheet</label>
+            <input type="text" class="form-control" id="profileCodeInput" placeholder="Contoh: RO036 atau 3.5533">
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Modul Wilayah Kerja *</label>
+            <select class="form-control" id="profileModuleSelect" required>
+              <optgroup label="Modul DK">
+                <option value="DK1">DK 1</option>
+                <option value="DK2">DK 2</option>
+                <option value="DK3">DK 3</option>
+                <option value="DK4">DK 4</option>
+                <option value="DK5">DK 5</option>
+                <option value="DK6">DK 6</option>
+              </optgroup>
+              <optgroup label="Modul LK">
+                <option value="LK1">LK 1</option>
+                <option value="LK2">LK 2</option>
+                <option value="LK3">LK 3</option>
+                <option value="LK4">LK 4</option>
+                <option value="LK5">LK 5</option>
+              </optgroup>
+              <optgroup label="Modul LP">
+                <option value="LP1">LP 1</option>
+                <option value="LP2">LP 2</option>
+                <option value="LP3">LP 3</option>
+                <option value="LP4" selected>LP 4</option>
+              </optgroup>
+            </select>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="submit" class="btn-primary" style="width: 100%;">
+            <i data-lucide="save"></i>
+            <span>Simpan Profil</span>
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL: Tambah / Edit Toko -->
+  <div class="modal-backdrop" id="customStoreModal">
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <div class="modal-title">
+          <i data-lucide="store" style="color: var(--primary);"></i>
+          <span>Tambah / Edit Toko</span>
+        </div>
+        <button type="button" class="btn-icon-mini" onclick="document.getElementById('customStoreModal').classList.remove('active')">
+          <i data-lucide="x" style="width: 16px; height: 16px;"></i>
+        </button>
+      </div>
+      <form id="customStoreForm">
+        <div class="modal-body">
+          <div class="form-group">
+            <label class="form-label">Akun / Jaringan Toko *</label>
+            <select class="form-control" id="customStoreAccount" required>
+              <option value="INDOMARET">Indomaret</option>
+              <option value="ALFAMART">Alfamart</option>
+              <option value="ALFAMIDI">Alfamidi</option>
+              <option value="LAWSON">Lawson</option>
+              <option value="FAMILY MART">Family Mart</option>
+              <option value="OTHER">Lainnya</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Kode Toko *</label>
+            <input type="text" class="form-control" id="customStoreCode" required placeholder="Contoh: TYQZ atau 1A69">
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Nama Toko *</label>
+            <input type="text" class="form-control" id="customStoreName" required placeholder="Contoh: M SOHOR">
+          </div>
+
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+            <div class="form-group">
+              <label class="form-label">Kota / Wilayah</label>
+              <input type="text" class="form-control" id="customStoreCity" placeholder="Contoh: KOTA CILEGON">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Kecamatan</label>
+              <input type="text" class="form-control" id="customStoreDistrict" placeholder="Contoh: PULOMERAK">
+            </div>
+          </div>
+
+          <div class="form-group">
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 2px;">
+              <label class="form-label">Koordinat GPS (Lat & Lon)</label>
+              <button type="button" class="btn-edit-profile" id="btnUseCurrentGps" style="padding: 2px 6px; font-size: 11px;">
+                <i data-lucide="crosshair" style="width: 12px; height: 12px;"></i>
+                <span>Gunakan Lokasi GPS Saya</span>
+              </button>
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+              <input type="text" class="form-control" id="customStoreLat" placeholder="Latitude (mis: -6.2088)">
+              <input type="text" class="form-control" id="customStoreLon" placeholder="Longitude (mis: 106.8456)">
+            </div>
+          </div>
+
+          <div style="display: flex; align-items: center; gap: 8px; margin-top: 4px;">
+            <input type="checkbox" id="customStoreAutoAdd" checked style="width: 16px; height: 16px; accent-color: var(--primary);">
+            <label for="customStoreAutoAdd" style="font-size: 12px; font-weight: 600; color: var(--text-main); cursor: pointer;">
+              Langsung masukkan toko ini ke Rute hari ini
+            </label>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="submit" class="btn-primary" style="width: 100%;">
+            <i data-lucide="check"></i>
+            <span>Simpan Toko</span>
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL: Review Selected Stores Drawer -->
+  <div class="modal-backdrop" id="drawerModal">
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <div class="modal-title">
+          <i data-lucide="check-square" style="color: var(--primary);"></i>
+          <span>Daftar Toko Terpilih</span>
+        </div>
+        <button type="button" class="btn-icon-mini" onclick="document.getElementById('drawerModal').classList.remove('active')">
+          <i data-lucide="x" style="width: 16px; height: 16px;"></i>
+        </button>
+      </div>
+      <div class="modal-body">
+        <div style="display: flex; align-items: center; justify-content: space-between;">
+          <span style="font-size: 13px; font-weight: 700; color: var(--text-muted);" id="drawerCountBadge">0 Toko</span>
+          <span class="schedule-badge-live" id="drawerRouteBadge">Rute 2</span>
+        </div>
+
+        <div id="drawerStoreList" style="display: flex; flex-direction: column; gap: 8px; max-height: 40vh; overflow-y: auto;">
+          <!-- Items injected -->
+        </div>
+
+        <div style="display: flex; gap: 8px; margin-top: 6px;">
+          <button type="button" class="btn-secondary" id="btnCopyWA" style="flex: 1;">
+            <i data-lucide="copy" style="width: 13px; height: 13px;"></i>
+            <span>Salin WA</span>
+          </button>
+          <button type="button" class="btn-secondary" id="btnClearDrawer" style="color: var(--danger);">
+            <i data-lucide="trash" style="width: 13px; height: 13px;"></i>
+            <span>Kosongkan</span>
+          </button>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn-primary" id="btnDrawerSubmit" style="width: 100%;">
+          <i data-lucide="send"></i>
+          <span>Kirim Jadwal Sekarang</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: Settings -->
+  <div class="modal-backdrop" id="settingsModal">
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <div class="modal-title">
+          <i data-lucide="sliders" style="color: var(--primary);"></i>
+          <span>Pengaturan Cloud API & GIS</span>
+        </div>
+        <button type="button" class="btn-icon-mini" onclick="document.getElementById('settingsModal').classList.remove('active')">
+          <i data-lucide="x" style="width: 16px; height: 16px;"></i>
+        </button>
+      </div>
+      <form id="settingsForm">
+        <div class="modal-body">
+          <div class="form-group">
+            <label class="form-label">Google Apps Script Web App URL</label>
+            <input 
+              type="url" 
+              class="form-control" 
+              id="gasApiUrlInput" 
+              placeholder="https://script.google.com/macros/s/.../exec"
+            >
+          </div>
+
+          <hr style="border: none; border-top: 1px solid var(--border); margin: 6px 0;">
+
+          <div class="form-group">
+            <label class="form-label">Database Toko & Koordinat GPS (IndexedDB)</label>
+            <button type="button" class="btn-secondary" id="btnForceSync" style="justify-content: center;">
+              <i data-lucide="refresh-cw"></i>
+              <span>Sinkronkan Ulang 34.000+ Toko (Lat/Lon)</span>
+            </button>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="submit" class="btn-primary" style="width: 100%;">
+            <i data-lucide="check"></i>
+            <span>Simpan Pengaturan</span>
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL: Riwayat Pengiriman -->
+  <div class="modal-backdrop" id="historyModal">
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <div class="modal-title">
+          <i data-lucide="history" style="color: var(--primary);"></i>
+          <span>Riwayat Input Jadwal</span>
+        </div>
+        <button type="button" class="btn-icon-mini" onclick="document.getElementById('historyModal').classList.remove('active')">
+          <i data-lucide="x" style="width: 16px; height: 16px;"></i>
+        </button>
+      </div>
+      <div class="modal-body">
+        <div id="historyListContainer" style="display: flex; flex-direction: column; gap: 8px; max-height: 50vh; overflow-y: auto;">
+          <!-- History items -->
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn-secondary" onclick="document.getElementById('historyModal').classList.remove('active')" style="width: 100%;">
+          <span>Tutup</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: Panduan Lengkap Aplikasi -->
+  <div class="modal-backdrop" id="helpModal">
+    <div class="modal-dialog" style="max-width: 480px;">
+      <div class="modal-header">
+        <div class="modal-title">
+          <i data-lucide="book-open" style="color: var(--primary);"></i>
+          <span>Panduan Penggunaan Web Absen MDS</span>
+        </div>
+        <button type="button" class="btn-icon-mini" onclick="document.getElementById('helpModal').classList.remove('active')">
+          <i data-lucide="x" style="width: 16px; height: 16px;"></i>
+        </button>
+      </div>
+      <div class="modal-body" style="display: flex; flex-direction: column; gap: 14px; max-height: 70vh; overflow-y: auto;">
+        
+        <!-- CTA Tour Interaktif -->
+        <div style="background: linear-gradient(135deg, var(--primary), #3730a3); color: white; padding: 14px; border-radius: var(--radius-md); box-shadow: var(--shadow-md);">
+          <div style="font-size: 14px; font-weight: 800; display: flex; align-items: center; gap: 6px;">
+            <span>🚀 Mau Panduan Langsung di Layar?</span>
+          </div>
+          <p style="font-size: 11.5px; opacity: 0.9; margin: 6px 0 10px 0; line-height: 1.4;">
+            Ikuti tur langkah demi langkah yang menyorot tombol-tombol aplikasi secara langsung.
+          </p>
+          <button type="button" class="btn-primary" id="btnStartInteractiveTour" style="background: white; color: var(--primary); font-weight: 800; width: 100%; justify-content: center; height: 36px;">
+            <i data-lucide="play-circle" style="width: 16px; height: 16px;"></i>
+            <span>Mulai Tur Interaktif (1 Menit)</span>
+          </button>
+        </div>
+
+        <!-- Alur 4 Langkah Cepat -->
+        <div>
+          <h4 style="font-size: 12px; text-transform: uppercase; color: var(--text-muted); font-weight: 800; letter-spacing: 0.5px; margin-bottom: 8px;">
+            📋 4 Langkah Alur Kerja MDS
+          </h4>
+          <div style="display: flex; flex-direction: column; gap: 8px;">
+            <div style="display: flex; gap: 10px; background: var(--bg-main); padding: 10px; border-radius: var(--radius-sm); border: 1px solid var(--border);">
+              <div style="width: 24px; height: 24px; border-radius: 99px; background: var(--primary); color: white; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 800; flex-shrink: 0;">1</div>
+              <div style="font-size: 11.5px; line-height: 1.4;">
+                <strong style="color: var(--text-main);">Pilih Rute Hari Ini:</strong> Sesuaikan nomor rute di dropdown atas dengan tanggal kunjungan Anda.
+              </div>
+            </div>
+            <div style="display: flex; gap: 10px; background: var(--bg-main); padding: 10px; border-radius: var(--radius-sm); border: 1px solid var(--border);">
+              <div style="width: 24px; height: 24px; border-radius: 99px; background: var(--primary); color: white; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 800; flex-shrink: 0;">2</div>
+              <div style="font-size: 11.5px; line-height: 1.4;">
+                <strong style="color: var(--text-main);">Cari & Pilih Toko:</strong> Cari nama toko atau gunakan pin di peta. Klik tombol <strong>+</strong> untuk memasukkan ke urutan rute.
+              </div>
+            </div>
+            <div style="display: flex; gap: 10px; background: var(--bg-main); padding: 10px; border-radius: var(--radius-sm); border: 1px solid var(--border);">
+              <div style="width: 24px; height: 24px; border-radius: 99px; background: var(--primary); color: white; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 800; flex-shrink: 0;">3</div>
+              <div style="font-size: 11.5px; line-height: 1.4;">
+                <strong style="color: var(--text-main);">Review & Kirim:</strong> Cek urutan toko dan garis rute, lalu klik tombol <strong>Kirim Jadwal</strong> di bar bawah.
+              </div>
+            </div>
+            <div style="display: flex; gap: 10px; background: var(--bg-main); padding: 10px; border-radius: var(--radius-sm); border: 1px solid var(--border);">
+              <div style="width: 24px; height: 24px; border-radius: 99px; background: var(--primary); color: white; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 800; flex-shrink: 0;">4</div>
+              <div style="font-size: 11.5px; line-height: 1.4;">
+                <strong style="color: var(--text-main);">Salin Format WhatsApp:</strong> Buka tab <strong>Jadwal Terinput</strong> untuk melihat jadwal tersimpan & salin teks untuk grup WA.
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Arti Badge Validasi -->
+        <div>
+          <h4 style="font-size: 12px; text-transform: uppercase; color: var(--text-muted); font-weight: 800; letter-spacing: 0.5px; margin-bottom: 8px;">
+            🔒 Arti Status & Validasi Toko
+          </h4>
+          <div style="display: flex; flex-direction: column; gap: 6px;">
+            <div style="padding: 8px 10px; background: var(--danger-light); border: 1px solid rgba(239, 68, 68, 0.2); border-radius: var(--radius-sm); font-size: 11.5px;">
+              <strong style="color: var(--danger);">🔒 TERKUNCI:</strong> Toko sudah dikover oleh MDS lain di modul manapun bulan ini. <em>(1 toko = 1 MDS, tidak bisa dipilih)</em>.
+            </div>
+            <div style="padding: 8px 10px; background: var(--warning-light); border: 1px solid rgba(245, 158, 11, 0.2); border-radius: var(--radius-sm); font-size: 11.5px;">
+              <strong style="color: var(--warning);">⚠️ RE-VISIT:</strong> Toko sudah pernah Anda kunjungi kurang dari 14 hari lalu. Diperlukan konfirmasi untuk wilayah minim toko.
+            </div>
+            <div style="padding: 8px 10px; background: var(--success-light); border: 1px solid rgba(16, 185, 129, 0.2); border-radius: var(--radius-sm); font-size: 11.5px;">
+              <strong style="color: var(--success);">✅ BEBAS PILIH:</strong> Toko belum pernah dikunjungi bulan ini atau sudah &ge; 14 hari sejak kunjungan terakhir.
+            </div>
+          </div>
+        </div>
+
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn-secondary" onclick="document.getElementById('helpModal').classList.remove('active')" style="width: 100%;">
+          <span>Tutup Panduan</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- SPOTLIGHT INTERACTIVE TOUR OVERLAY -->
+  <div id="tourOverlay" class="tour-overlay" style="display: none;">
+    <div id="tourBackdrop" class="tour-backdrop"></div>
+    <div id="tourSpotlight" class="tour-spotlight"></div>
+    
+    <!-- Tooltip Card Floating -->
+    <div id="tourTooltip" class="tour-tooltip">
+      <div class="tour-tooltip-header">
+        <div class="tour-step-badge" id="tourStepBadge">Langkah 1 / 8</div>
+        <button type="button" class="tour-btn-close" id="tourBtnClose" title="Lewati Tur">
+          <i data-lucide="x" style="width: 14px; height: 14px;"></i>
+        </button>
+      </div>
+      <div class="tour-tooltip-body">
+        <div class="tour-title" id="tourTitle">Judul Langkah</div>
+        <div class="tour-description" id="tourDesc">Deskripsi langkah tutorial.</div>
+        <div class="tour-tip-box" id="tourTipBox" style="display: none;">
+          <i data-lucide="info" style="width: 14px; height: 14px; flex-shrink: 0; color: var(--primary);"></i>
+          <span id="tourTipText">Tips tambahan</span>
+        </div>
+      </div>
+      <div class="tour-tooltip-footer">
+        <button type="button" class="tour-btn-skip" id="tourBtnSkip">Lewati</button>
+        <div style="display: flex; gap: 6px;">
+          <button type="button" class="tour-btn-prev" id="tourBtnPrev">
+            <i data-lucide="chevron-left" style="width: 14px; height: 14px;"></i>
+            <span>Kembali</span>
+          </button>
+          <button type="button" class="tour-btn-next" id="tourBtnNext">
+            <span>Lanjut</span>
+            <i data-lucide="chevron-right" style="width: 14px; height: 14px;"></i>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Application Logic Scripts -->
+  <script src="js/db.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/app.js"></script>
+
+  <script>
+    if (window.lucide) {
+      lucide.createIcons();
+    }
+  </script>
+</body>
+</html>
