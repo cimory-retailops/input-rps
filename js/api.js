@@ -171,7 +171,7 @@ async function syncMasterCrewFromSheet() {
       const account = (row[4] || "").toString().trim();
       const jabatan = (row[2] || "").toString().trim();
 
-      if (nama && id && !crews.some(c => c.nama.toLowerCase() === nama.toLowerCase())) {
+      if (nama && id && !crews.some(c => c.id === id && c.nama.toLowerCase() === nama.toLowerCase() && c.modul.toLowerCase() === modul.toLowerCase())) {
         crews.push({ id, nama, modul, account, jabatan });
       }
     }

@@ -1748,11 +1748,18 @@ async function openProfileModal() {
   if (searchInput) searchInput.value = "";
 
   try {
+    // 1. Tampilkan data dari IndexedDB lokal langsung agar tidak lag
     allMasterCrewsCache = await getAllCrew();
-    if (allMasterCrewsCache.length === 0 || !allMasterCrewsCache.some(c => c.nama.includes("Yohandi"))) {
-      allMasterCrewsCache = await syncMasterCrewFromSheet();
-    }
     renderCrewSearchResults(allMasterCrewsCache, "");
+
+    // 2. Selalu update dari Google Spreadsheet di background secara otomatis
+    syncMasterCrewFromSheet().then((freshCrews) => {
+      if (freshCrews && freshCrews.length > 0) {
+        allMasterCrewsCache = freshCrews;
+        const currentQ = document.getElementById("crewSearchInput")?.value || "";
+        renderCrewSearchResults(allMasterCrewsCache, currentQ);
+      }
+    });
   } catch (err) {
     console.warn("Could not load crews:", err);
     if (listContainer) {
@@ -1772,6 +1779,31 @@ async function openProfileModal() {
   modal.classList.add("active");
   if (window.lucide) lucide.createIcons();
 }
+
+window.manualRefreshCrewList = async function() {
+  const listContainer = document.getElementById("crewSearchResultsList");
+  const btn = document.getElementById("btnSyncCrewModal");
+  if (btn) btn.classList.add("spin");
+  if (listContainer) {
+    listContainer.innerHTML = `<div style="padding: 12px; text-align: center; color: var(--primary); font-size: 11px;">Mengambil data crew terbaru dari Google Sheet...</div>`;
+  }
+
+  try {
+    const freshCrews = await syncMasterCrewFromSheet();
+    if (freshCrews && freshCrews.length > 0) {
+      allMasterCrewsCache = freshCrews;
+      const currentQ = document.getElementById("crewSearchInput")?.value || "";
+      renderCrewSearchResults(allMasterCrewsCache, currentQ);
+      showToast(`Berhasil menarik ${freshCrews.length} crew dari Google Sheet!`, "success");
+    } else {
+      showToast("Data crew di spreadsheet tidak ditemukan", "warning");
+    }
+  } catch (err) {
+    showToast(`Gagal menarik data crew: ${err.message}`, "error");
+  } finally {
+    if (btn) btn.classList.remove("spin");
+  }
+};
 
 function renderCrewSearchResults(crews, query) {
   const listContainer = document.getElementById("crewSearchResultsList");

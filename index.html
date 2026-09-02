@@ -227,7 +227,12 @@
       <form id="profileForm">
         <div class="modal-body">
           <div class="form-group">
-            <label class="form-label">Cari & Pilih MDS dari Master Crew</label>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+              <label class="form-label" style="margin-bottom: 0;">Cari & Pilih MDS dari Master Crew</label>
+              <button type="button" class="btn-icon-mini" id="btnSyncCrewModal" title="Tarik Data Crew Terbaru dari Google Sheet" onclick="manualRefreshCrewList()" style="width: 24px; height: 24px;">
+                <i data-lucide="refresh-cw" style="width: 13px; height: 13px; color: var(--primary);"></i>
+              </button>
+            </div>
             <div class="search-input-wrapper" style="margin-bottom: 6px;">
               <i data-lucide="search" class="search-icon" style="width: 15px; height: 15px;"></i>
               <input 
