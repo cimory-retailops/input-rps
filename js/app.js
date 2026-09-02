@@ -668,22 +668,45 @@ async function triggerMasterSyncWithOverlay() {
  * Event Bindings
  */
 function bindEvents() {
-  // Search Input Debounce
+  // Search Input Debounce (Minimal 4 Karakter agar Super Ringan & Cepat)
   let searchTimer;
   if (elements.searchInput) {
     elements.searchInput.addEventListener("input", (e) => {
-      const val = e.target.value;
+      const val = e.target.value.trim();
       if (elements.searchClear) {
         elements.searchClear.classList.toggle("visible", val.length > 0);
       }
       clearTimeout(searchTimer);
+
+      if (val.length === 0) {
+        performSearch("");
+        return;
+      }
+
+      if (val.length < 4) {
+        // Beri petunjuk jumlah sisa karakter
+        if (elements.searchResultsFloating) {
+          elements.searchResultsFloating.style.display = "flex";
+          elements.searchResultsFloating.innerHTML = `
+            <div style="padding: 14px 12px; text-align: center; color: var(--text-muted); font-size: 11.5px; line-height: 1.4;">
+              <i data-lucide="search" style="width: 18px; height: 18px; color: var(--primary); margin-bottom: 4px;"></i>
+              <div>Ketik <strong>${4 - val.length} karakter lagi</strong> untuk mencari...</div>
+              <div style="font-size: 10px; color: var(--text-muted); margin-top: 2px;">(Min. 4 karakter contoh: <em>1V01</em> atau <em>Sudirman</em>)</div>
+            </div>
+          `;
+          if (window.lucide) lucide.createIcons();
+        }
+        return;
+      }
+
+      // Minimal 4 karakter terpenuhi -> eksekusi search
       searchTimer = setTimeout(() => {
         performSearch(val);
-      }, 150);
+      }, 180);
     });
 
     elements.searchInput.addEventListener("focus", () => {
-      if (elements.searchResultsFloating) {
+      if (elements.searchResultsFloating && elements.searchInput.value.trim().length > 0) {
         elements.searchResultsFloating.style.display = "flex";
       }
     });
@@ -713,6 +736,7 @@ function bindEvents() {
   document.getElementById("btnGpsLocate")?.addEventListener("click", handleGpsLocate);
 
   // Top Buttons
+  document.getElementById("btnOpenMonitoring")?.addEventListener("click", openMonitoringModal);
   document.getElementById("btnEditProfile")?.addEventListener("click", openProfileModal);
   document.getElementById("btnOpenSettings")?.addEventListener("click", openSettingsModal);
   document.getElementById("btnOpenHistory")?.addEventListener("click", openHistoryModal);
@@ -768,6 +792,13 @@ function bindEvents() {
   document.getElementById("btnClearDrawer")?.addEventListener("click", clearSelectedStores);
   document.getElementById("btnDrawerSubmit")?.addEventListener("click", handleDirectSubmit);
   document.getElementById("btnCopyWA")?.addEventListener("click", copyWhatsAppSummary);
+
+  // Monitoring Action Buttons
+  document.getElementById("btnRefreshMonitoring")?.addEventListener("click", () => {
+    const sel = document.getElementById("monitoringRuteSelect");
+    loadMonitoringData(sel ? sel.value : state.currentRute);
+  });
+  document.getElementById("btnCopyMonitoringWA")?.addEventListener("click", copyMonitoringReportWA);
 
   // Proteksi Tambahan: Peringatan jika tab ditutup / direfresh saat masih ada toko yang dipilih
   window.addEventListener("beforeunload", (e) => {
@@ -837,12 +868,17 @@ window.switchAppView = function(viewName) {
  */
 async function performSearch(query) {
   try {
-    const isSearching = (query || "").trim().length > 0;
-    const results = await searchStores({
-      query: query,
+    const cleanQ = (query || "").trim();
+    if (cleanQ.length > 0 && cleanQ.length < 4) {
+      return; // Jangan jalankan query database 34k jika di bawah 4 karakter
+    }
+
+    const isSearching = cleanQ.length >= 4;
+    const results = isSearching ? await searchStores({
+      query: cleanQ,
       accountFilter: state.accountFilter,
       limit: 60
-    });
+    }) : [];
 
     state.searchResults = results;
     renderFloatingSearchResults(results, isSearching);
@@ -1529,6 +1565,49 @@ window.confirmDeleteStoreFromSchedule = async function(kodeToko, namaToko) {
 };
 
 /**
+ * Utility: Bulletproof Copy to Clipboard (Works on HTTPS, HTTP LAN, and all Mobile devices)
+ */
+function safeCopyToClipboard(text, successMsg = "Teks berhasil disalin ke clipboard!") {
+  if (navigator.clipboard && window.isSecureContext) {
+    navigator.clipboard.writeText(text).then(() => {
+      showToast(successMsg, "success");
+    }).catch(() => {
+      fallbackExecCommandCopy(text, successMsg);
+    });
+    return;
+  }
+  fallbackExecCommandCopy(text, successMsg);
+}
+
+function fallbackExecCommandCopy(text, successMsg) {
+  try {
+    const textarea = document.createElement("textarea");
+    textarea.value = text;
+    textarea.style.position = "fixed";
+    textarea.style.left = "-9999px";
+    textarea.style.top = "-9999px";
+    textarea.style.opacity = "0";
+    textarea.setAttribute("readonly", "");
+    document.body.appendChild(textarea);
+    textarea.focus();
+    textarea.select();
+    textarea.setSelectionRange(0, textarea.value.length);
+
+    const successful = document.execCommand("copy");
+    document.body.removeChild(textarea);
+
+    if (successful) {
+      showToast(successMsg, "success");
+    } else {
+      showToast("Gagal menyalin ke clipboard", "warning");
+    }
+  } catch (err) {
+    console.error("Copy failed:", err);
+    showToast("Gagal menyalin ke clipboard", "error");
+  }
+}
+
+/**
  * Generator Salin Format WhatsApp
  */
 function copyWhatsAppSummary() {
@@ -1558,11 +1637,7 @@ function copyWhatsAppSummary() {
 
   text += `\n_Tercatat via Web Absen MDS GIS_`;
 
-  navigator.clipboard.writeText(text).then(() => {
-    showToast("Format laporan WA berhasil disalin ke clipboard!", "success");
-  }).catch(() => {
-    showToast("Gagal menyalin teks", "error");
-  });
+  safeCopyToClipboard(text, "Format laporan WA berhasil disalin ke clipboard!");
 }
 
 function copyScheduleViewWA() {
@@ -1585,11 +1660,7 @@ function copyScheduleViewWA() {
 
   text += `\n_Laporan Jadwal Web Absen MDS GIS_`;
 
-  navigator.clipboard.writeText(text).then(() => {
-    showToast(`Jadwal Rute ${state.currentRute} berhasil disalin ke clipboard!`, "success");
-  }).catch(() => {
-    showToast("Gagal menyalin teks", "error");
-  });
+  safeCopyToClipboard(text, `Jadwal Rute ${state.currentRute} berhasil disalin ke clipboard!`);
 }
 
 /**
@@ -1784,12 +1855,17 @@ window.manualRefreshCrewList = async function() {
   const listContainer = document.getElementById("crewSearchResultsList");
   const btn = document.getElementById("btnSyncCrewModal");
   if (btn) btn.classList.add("spin");
-  if (listContainer) {
-    listContainer.innerHTML = `<div style="padding: 12px; text-align: center; color: var(--primary); font-size: 11px;">Mengambil data crew terbaru dari Google Sheet...</div>`;
-  }
+
+  showBlockingLoader(
+    "Menarik Master Crew...",
+    "Mengunduh data user terbaru dari master spreadsheet...",
+    true
+  );
+  updateBlockingLoaderProgress(40, "Sinkronisasi akun MDS...");
 
   try {
     const freshCrews = await syncMasterCrewFromSheet();
+    updateBlockingLoaderProgress(100, "Selesai!");
     if (freshCrews && freshCrews.length > 0) {
       allMasterCrewsCache = freshCrews;
       const currentQ = document.getElementById("crewSearchInput")?.value || "";
@@ -1801,6 +1877,7 @@ window.manualRefreshCrewList = async function() {
   } catch (err) {
     showToast(`Gagal menarik data crew: ${err.message}`, "error");
   } finally {
+    hideBlockingLoader();
     if (btn) btn.classList.remove("spin");
   }
 };
@@ -2197,4 +2274,297 @@ function renderTourStep(index) {
 
   if (window.lucide) lucide.createIcons();
 }
+
+/* ===================================================
+   REALTIME MDS INPUT MONITORING MODULE
+   =================================================== */
+let monitoringState = {
+  rute: null,
+  data: null,
+  activeTab: 'pending', // 'pending' | 'submitted'
+  modulFilter: 'ALL',
+  searchQuery: ''
+};
+
+async function openMonitoringModal() {
+  const modal = document.getElementById("monitoringModal");
+  if (!modal) return;
+
+  const select = document.getElementById("monitoringRuteSelect");
+  if (select && select.options.length === 0) {
+    for (let i = 1; i <= 31; i++) {
+      const opt = document.createElement("option");
+      opt.value = i;
+      opt.textContent = `Rute ${i} ${i === state.currentRute ? '(Hari Ini)' : ''}`;
+      select.appendChild(opt);
+    }
+    select.value = state.currentRute;
+    select.addEventListener("change", (e) => {
+      loadMonitoringData(e.target.value);
+    });
+  } else if (select) {
+    select.value = state.currentRute;
+  }
+
+  // Bind monitoring search input
+  const monSearchInput = document.getElementById("monitoringSearchInput");
+  if (monSearchInput && !monSearchInput.dataset.bound) {
+    monSearchInput.dataset.bound = "true";
+    monSearchInput.addEventListener("input", (e) => {
+      monitoringState.searchQuery = e.target.value.toLowerCase().trim();
+      renderMonitoringList();
+    });
+  }
+
+  modal.classList.add("active");
+  if (window.lucide) lucide.createIcons();
+
+  await loadMonitoringData(select ? select.value : state.currentRute);
+}
+
+async function loadMonitoringData(rute) {
+  monitoringState.rute = rute;
+  const listContainer = document.getElementById("monitoringListContainer");
+  const refreshBtn = document.getElementById("btnRefreshMonitoring");
+  if (refreshBtn) refreshBtn.classList.add("spin");
+
+  showBlockingLoader(
+    `Memeriksa Monitoring Rute ${rute}...`,
+    "Menghubungkan ke seluruh Google Spreadsheet modul...",
+    true
+  );
+  updateBlockingLoaderProgress(35, "Scanning jadwal modul DK, LK, LP...");
+
+  if (listContainer) {
+    listContainer.innerHTML = `
+      <div style="text-align: center; padding: 24px; color: var(--text-muted); font-size: 11.5px;">
+        <i data-lucide="loader-2" class="spin" style="width: 20px; height: 20px; margin-bottom: 6px; color: var(--primary);"></i>
+        <div>Memeriksa status input Rute ${rute} di seluruh modul...</div>
+      </div>
+    `;
+    if (window.lucide) lucide.createIcons();
+  }
+
+  try {
+    updateBlockingLoaderProgress(70, "Mencocokkan data MDS terdaftar...");
+    const data = await fetchMdsMonitoringStatus(rute);
+
+    // Filter out Admin / ID RO036 dari KPI & Rekap Monitoring Lapangan
+    data.pending = (data.pending || []).filter(c => {
+      const cleanId = (c.id || '').toString().trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+      const cleanNama = (c.nama || '').toLowerCase();
+      return cleanId !== 'RO036' && !cleanNama.includes('yohandi');
+    });
+    data.submitted = (data.submitted || []).filter(c => {
+      const cleanId = (c.id || '').toString().trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+      const cleanNama = (c.nama || '').toLowerCase();
+      return cleanId !== 'RO036' && !cleanNama.includes('yohandi');
+    });
+    data.totalCrew = data.pending.length + data.submitted.length;
+    data.pendingCount = data.pending.length;
+    data.submittedCount = data.submitted.length;
+    data.percentage = data.totalCrew > 0 ? Math.round((data.submittedCount / data.totalCrew) * 100) : 0;
+
+    monitoringState.data = data;
+    updateBlockingLoaderProgress(100, "Selesai!");
+
+    // Update numbers
+    const totalEl = document.getElementById("monTotalCrew");
+    const subEl = document.getElementById("monSubmittedCount");
+    const pendEl = document.getElementById("monPendingCount");
+    const percLabel = document.getElementById("monPercentageLabel");
+    const progBar = document.getElementById("monProgressBar");
+    const tabPendingText = document.getElementById("monTabPendingText");
+    const tabSubmittedText = document.getElementById("monTabSubmittedText");
+
+    if (totalEl) totalEl.textContent = data.totalCrew;
+    if (subEl) subEl.textContent = data.submittedCount;
+    if (pendEl) pendEl.textContent = data.pendingCount;
+    if (percLabel) percLabel.textContent = `${data.percentage}%`;
+    if (progBar) progBar.style.width = `${data.percentage}%`;
+    if (tabPendingText) tabPendingText.textContent = `Belum Input (${data.pendingCount})`;
+    if (tabSubmittedText) tabSubmittedText.textContent = `Sudah Input (${data.submittedCount})`;
+
+    renderMonitoringList();
+    showToast(`Data monitoring Rute ${rute} berhasil dimuat!`, "success");
+  } catch (err) {
+    if (listContainer) {
+      listContainer.innerHTML = `
+        <div style="text-align: center; padding: 20px; color: var(--danger); font-size: 11.5px;">
+          Gagal memuat monitoring: ${escapeHtml(err.message)}
+        </div>
+      `;
+    }
+    showToast(`Gagal memuat monitoring: ${err.message}`, "error");
+  } finally {
+    hideBlockingLoader();
+    if (refreshBtn) refreshBtn.classList.remove("spin");
+  }
+}
+
+function renderMonitoringList() {
+  const listContainer = document.getElementById("monitoringListContainer");
+  if (!listContainer || !monitoringState.data) return;
+
+  const isPending = monitoringState.activeTab === 'pending';
+  let list = isPending ? monitoringState.data.pending : monitoringState.data.submitted;
+
+  // Filter modul group (DK, LK, LP)
+  if (monitoringState.modulFilter && monitoringState.modulFilter !== 'ALL') {
+    list = list.filter(c => (c.modul || '').toUpperCase().startsWith(monitoringState.modulFilter));
+  }
+
+  // Filter search query
+  if (monitoringState.searchQuery) {
+    const q = monitoringState.searchQuery;
+    list = list.filter(c => {
+      const str = `${c.nama || ''} ${c.id || ''} ${c.modul || ''} ${c.account || ''}`.toLowerCase();
+      return str.includes(q);
+    });
+  }
+
+  if (list.length === 0) {
+    listContainer.innerHTML = `
+      <div style="text-align: center; padding: 20px; color: var(--text-muted); font-size: 11.5px;">
+        ${isPending ? '🎉 Semua MDS di kategori ini sudah input rute!' : 'Belum ada MDS yang input rute di kategori ini'}
+      </div>
+    `;
+    return;
+  }
+
+  let html = "";
+  list.forEach((c, idx) => {
+    const initials = (c.nama || "MDS")
+      .split(" ")
+      .map(w => w[0])
+      .slice(0, 2)
+      .join("")
+      .toUpperCase();
+
+    const cleanModul = (c.modul || "MODUL").replace(/\s+/g, "").toUpperCase();
+
+    if (isPending) {
+      html += `
+        <div class="mon-crew-card pending">
+          <div style="display: flex; align-items: center; gap: 8px; min-width: 0;">
+            <div class="crew-item-avatar" style="background: linear-gradient(135deg, #ef4444, #f97316);">${initials}</div>
+            <div style="min-width: 0;">
+              <div style="font-size: 12px; font-weight: 700; color: var(--text-main); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                ${idx + 1}. ${escapeHtml(c.nama)}
+              </div>
+              <div style="font-size: 10px; color: var(--text-muted);">
+                ID: <strong>${escapeHtml(c.id || '-')}</strong> &bull; ${escapeHtml(c.account || 'ALFAMART')}
+              </div>
+            </div>
+          </div>
+          <div style="display: flex; align-items: center; gap: 6px; flex-shrink: 0;">
+            <span style="font-size: 10px; font-weight: 800; background: var(--danger-light); color: var(--danger); padding: 2px 8px; border-radius: 99px;">
+              ${escapeHtml(cleanModul)}
+            </span>
+            <span style="font-size: 10px; font-weight: 700; color: var(--danger);">⏳ Belum</span>
+          </div>
+        </div>
+      `;
+    } else {
+      html += `
+        <div class="mon-crew-card submitted">
+          <div style="display: flex; align-items: center; gap: 8px; min-width: 0;">
+            <div class="crew-item-avatar" style="background: linear-gradient(135deg, #10b981, #059669);">${initials}</div>
+            <div style="min-width: 0;">
+              <div style="font-size: 12px; font-weight: 700; color: var(--text-main); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                ${idx + 1}. ${escapeHtml(c.nama)}
+              </div>
+              <div style="font-size: 10px; color: var(--text-muted);">
+                ID: <strong>${escapeHtml(c.id || '-')}</strong> &bull; ${escapeHtml(c.account || 'ALFAMART')}
+              </div>
+            </div>
+          </div>
+          <div style="display: flex; align-items: center; gap: 6px; flex-shrink: 0;">
+            <span style="font-size: 10px; font-weight: 800; background: var(--primary-light); color: var(--primary); padding: 2px 8px; border-radius: 99px;">
+              ${escapeHtml(cleanModul)}
+            </span>
+            <span style="font-size: 10px; font-weight: 800; background: var(--success-light); color: var(--success); padding: 2px 8px; border-radius: 99px;">
+              ✅ ${c.storeCount} Toko
+            </span>
+          </div>
+        </div>
+      `;
+    }
+  });
+
+  listContainer.innerHTML = html;
+  if (window.lucide) lucide.createIcons();
+}
+
+window.switchMonitoringTab = function(tab) {
+  monitoringState.activeTab = tab;
+  const btnPending = document.getElementById("btnMonTabPending");
+  const btnSubmitted = document.getElementById("btnMonTabSubmitted");
+
+  if (tab === 'pending') {
+    btnPending?.classList.add("active");
+    btnSubmitted?.classList.remove("active");
+  } else {
+    btnSubmitted?.classList.add("active");
+    btnPending?.classList.remove("active");
+  }
+
+  renderMonitoringList();
+};
+
+window.filterMonitoringByModule = function(modulGroup) {
+  monitoringState.modulFilter = modulGroup;
+  document.querySelectorAll(".chip-filter").forEach(chip => {
+    if (chip.dataset.modul === modulGroup) {
+      chip.classList.add("active");
+    } else {
+      chip.classList.remove("active");
+    }
+  });
+
+  renderMonitoringList();
+};
+
+function copyMonitoringReportWA() {
+  if (!monitoringState.data) {
+    showToast("Data monitoring belum dimuat!", "warning");
+    return;
+  }
+
+  const data = monitoringState.data;
+  const nowStr = new Date().toLocaleDateString('id-ID', { day: '2-digit', month: 'long', year: 'numeric' });
+
+  let text = `📊 *MONITORING REALTIME INPUT RUTE MDS*\n`;
+  text += `📅 *Rute*: Rute ${data.rute} (${nowStr})\n`;
+  text += `👥 *Total MDS*: ${data.totalCrew} Orang\n`;
+  text += `✅ *Sudah Input*: ${data.submittedCount} Orang (${data.percentage}%)\n`;
+  text += `⏳ *Belum Input*: ${data.pendingCount} Orang\n\n`;
+
+  text += `━━━━━━━━━━━━━━━━━━━━━\n`;
+  text += `⏳ *DAFTAR MDS BELUM INPUT (${data.pendingCount} Orang):*\n`;
+  if (data.pending.length === 0) {
+    text += `(Semua MDS sudah selesai input rute 🎉)\n`;
+  } else {
+    data.pending.forEach((c, idx) => {
+      const cleanModul = (c.modul || "MODUL").replace(/\s+/g, "").toUpperCase();
+      text += `${idx + 1}. [${cleanModul}] ${c.id || '-'} - ${c.nama}\n`;
+    });
+  }
+
+  text += `\n━━━━━━━━━━━━━━━━━━━━━\n`;
+  text += `✅ *DAFTAR MDS SUDAH INPUT (${data.submittedCount} Orang):*\n`;
+  if (data.submitted.length === 0) {
+    text += `(Belum ada MDS yang input)\n`;
+  } else {
+    data.submitted.forEach((c, idx) => {
+      const cleanModul = (c.modul || "MODUL").replace(/\s+/g, "").toUpperCase();
+      text += `${idx + 1}. [${cleanModul}] ${c.nama} (${c.storeCount} Toko)\n`;
+    });
+  }
+
+  text += `\n_Diupdate otomatis via Web Absen MDS_ 🚀`;
+
+  safeCopyToClipboard(text, "📋 Format Rekap Monitoring berhasil disalin ke clipboard!");
+}
+
 

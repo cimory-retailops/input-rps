@@ -63,7 +63,10 @@
 
         <!-- Action Buttons -->
         <div class="top-btn-group">
-          <button type="button" class="btn-icon-mini" id="btnOpenHelpTour" title="Panduan & Tutorial" style="background: var(--primary-light); color: var(--primary);">
+          <button type="button" class="btn-icon-mini" id="btnOpenMonitoring" title="Monitoring Realtime Input MDS" style="background: var(--primary-light); color: var(--primary);">
+            <i data-lucide="bar-chart-3" style="width: 15px; height: 15px;"></i>
+          </button>
+          <button type="button" class="btn-icon-mini" id="btnOpenHelpTour" title="Panduan & Tutorial">
             <i data-lucide="help-circle" style="width: 15px; height: 15px;"></i>
           </button>
           <button type="button" class="btn-icon-mini" id="btnThemeToggle" title="Ganti Tema">
@@ -109,7 +112,7 @@
             type="text" 
             id="searchInput" 
             class="search-input" 
-            placeholder="Cari nama toko, kode toko, kecamatan..." 
+            placeholder="Cari toko (min. 4 karakter / kode / nama)..." 
             autocomplete="off"
           >
           <button type="button" id="searchClear" class="search-clear" title="Bersihkan">
@@ -480,6 +483,106 @@
       </div>
       <div class="modal-footer">
         <button type="button" class="btn-secondary" onclick="document.getElementById('historyModal').classList.remove('active')" style="width: 100%;">
+          <span>Tutup</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: Monitoring Status Input MDS Realtime -->
+  <div class="modal-backdrop" id="monitoringModal">
+    <div class="modal-dialog" style="max-width: 560px;">
+      <div class="modal-header">
+        <div class="modal-title">
+          <i data-lucide="bar-chart-3" style="color: var(--primary);"></i>
+          <span>Monitoring Status Input MDS</span>
+        </div>
+        <button type="button" class="btn-icon-mini" onclick="document.getElementById('monitoringModal').classList.remove('active')">
+          <i data-lucide="x" style="width: 16px; height: 16px;"></i>
+        </button>
+      </div>
+      <div class="modal-body" style="display: flex; flex-direction: column; gap: 12px; max-height: 75vh; overflow-y: auto;">
+        
+        <!-- Controls: Rute Date Selector & Refresh -->
+        <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px; background: var(--bg-main); padding: 8px 12px; border-radius: var(--radius-md); border: 1px solid var(--border);">
+          <div style="display: flex; align-items: center; gap: 6px;">
+            <i data-lucide="calendar" style="width: 14px; height: 14px; color: var(--primary);"></i>
+            <span style="font-size: 12px; font-weight: 700; color: var(--text-main);">Target Rute:</span>
+            <select id="monitoringRuteSelect" class="form-control" style="width: auto; padding: 2px 8px; height: 28px; font-size: 12px; font-weight: 700;">
+              <!-- 1 to 31 options generated dynamically -->
+            </select>
+          </div>
+          <button type="button" class="btn-primary" id="btnRefreshMonitoring" style="height: 28px; padding: 0 10px; font-size: 11px; font-weight: 700;">
+            <i data-lucide="refresh-cw" style="width: 12px; height: 12px;"></i>
+            <span>Refresh Data</span>
+          </button>
+        </div>
+
+        <!-- Summary Cards Grid -->
+        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;">
+          <div style="background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 10px; text-align: center;">
+            <div style="font-size: 10px; color: var(--text-muted); font-weight: 700;">TOTAL MDS</div>
+            <div id="monTotalCrew" style="font-size: 18px; font-weight: 800; color: var(--text-main); margin-top: 2px;">-</div>
+          </div>
+          <div style="background: var(--success-light); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: var(--radius-md); padding: 10px; text-align: center;">
+            <div style="font-size: 10px; color: var(--success); font-weight: 700;">SUDAH INPUT</div>
+            <div id="monSubmittedCount" style="font-size: 18px; font-weight: 800; color: var(--success); margin-top: 2px;">-</div>
+          </div>
+          <div style="background: var(--danger-light); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: var(--radius-md); padding: 10px; text-align: center;">
+            <div style="font-size: 10px; color: var(--danger); font-weight: 700;">BELUM INPUT</div>
+            <div id="monPendingCount" style="font-size: 18px; font-weight: 800; color: var(--danger); margin-top: 2px;">-</div>
+          </div>
+        </div>
+
+        <!-- Progress Bar -->
+        <div>
+          <div style="display: flex; justify-content: space-between; font-size: 11px; font-weight: 700; margin-bottom: 4px;">
+            <span style="color: var(--text-muted);">Tingkat Kepatuhan Input</span>
+            <span id="monPercentageLabel" style="color: var(--primary);">0%</span>
+          </div>
+          <div style="height: 8px; background: var(--bg-main); border-radius: 99px; overflow: hidden; border: 1px solid var(--border);">
+            <div id="monProgressBar" style="height: 100%; width: 0%; background: linear-gradient(90deg, var(--primary), #10b981); transition: width 0.5s cubic-bezier(0.4, 0, 0.2, 1);"></div>
+          </div>
+        </div>
+
+        <!-- Filter Sub-Tabs (Belum Input vs Sudah Input) -->
+        <div style="display: flex; gap: 6px; border-bottom: 1px solid var(--border); padding-bottom: 6px;">
+          <button type="button" class="tab-btn-pill active" id="btnMonTabPending" onclick="switchMonitoringTab('pending')" style="flex: 1; justify-content: center; height: 32px; font-size: 11.5px;">
+            <i data-lucide="clock" style="width: 13px; height: 13px;"></i>
+            <span id="monTabPendingText">Belum Input (-)</span>
+          </button>
+          <button type="button" class="tab-btn-pill" id="btnMonTabSubmitted" onclick="switchMonitoringTab('submitted')" style="flex: 1; justify-content: center; height: 32px; font-size: 11.5px;">
+            <i data-lucide="check-circle" style="width: 13px; height: 13px;"></i>
+            <span id="monTabSubmittedText">Sudah Input (-)</span>
+          </button>
+        </div>
+
+        <!-- Filter Modul Chips (Semua, DK, LK, LP) -->
+        <div style="display: flex; gap: 4px; overflow-x: auto; padding: 2px 0;">
+          <button type="button" class="chip-filter active" data-modul="ALL" onclick="filterMonitoringByModule('ALL')">Semua Modul</button>
+          <button type="button" class="chip-filter" data-modul="DK" onclick="filterMonitoringByModule('DK')">Modul DK</button>
+          <button type="button" class="chip-filter" data-modul="LK" onclick="filterMonitoringByModule('LK')">Modul LK</button>
+          <button type="button" class="chip-filter" data-modul="LP" onclick="filterMonitoringByModule('LP')">Modul LP</button>
+        </div>
+
+        <!-- Search Input in Monitoring -->
+        <div class="search-input-wrapper">
+          <i data-lucide="search" class="search-icon" style="width: 14px; height: 14px;"></i>
+          <input type="text" id="monitoringSearchInput" class="search-input" placeholder="Cari nama MDS atau kode crew..." autocomplete="off">
+        </div>
+
+        <!-- List Container -->
+        <div id="monitoringListContainer" style="display: flex; flex-direction: column; gap: 6px; min-height: 120px; max-height: 35vh; overflow-y: auto;">
+          <!-- Items will be injected here -->
+        </div>
+
+      </div>
+      <div class="modal-footer" style="display: flex; gap: 8px;">
+        <button type="button" class="btn-primary" id="btnCopyMonitoringWA" style="flex: 1; justify-content: center; height: 40px; font-size: 12px; font-weight: 800; background: #25d366; color: white;">
+          <i data-lucide="share-2" style="width: 15px; height: 15px;"></i>
+          <span>Salin Rekap Monitoring WhatsApp</span>
+        </button>
+        <button type="button" class="btn-secondary" onclick="document.getElementById('monitoringModal').classList.remove('active')" style="height: 40px; padding: 0 16px;">
           <span>Tutup</span>
         </button>
       </div>

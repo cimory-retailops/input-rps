@@ -116,6 +116,16 @@ function doGet(e) {
       });
     }
 
+    if (action === "get_monitoring_status" || action === "get_mds_input_status") {
+      // Real-time tracking siapa saja MDS yang sudah vs belum input rute hari berjalan
+      const ruteParam = e.parameter.rute;
+      const monitoringData = fetchMdsInputStatus(ruteParam);
+      return jsonResponse({
+        status: "success",
+        data: monitoringData
+      });
+    }
+
     return jsonResponse({
       status: "error",
       message: "Action tidak dikenal"
@@ -672,4 +682,425 @@ function deleteStoreFromAllSpreadsheets(moduleName, rute, crewCode, kodeToko) {
 
   return results;
 }
+
+/**
+ * Helper untuk tracking & monitoring status input MDS realtime per rute
+ */
+function fetchMdsInputStatus(ruteFilter) {
+  const targetRute = (ruteFilter || new Date().getDate()).toString().trim().replace(/^rute\s*/i, "");
+  
+  // Ambil daftar kru valid (kecualikan Admin / ID RO036 dari KPI monitoring)
+  const allCrews = fetchCrewList().filter(c => {
+    const id = (c.id || "").toString().trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
+    const nama = (c.nama || "").toLowerCase();
+    const jabatan = (c.jabatan || "").toLowerCase();
+    if (id === "RO036" || nama.includes("yohandi") || (jabatan.includes("admin") && !jabatan.includes("merchandiser"))) {
+      return false;
+    }
+    return true;
+  });
+
+  // Map crew lookup by ID dan Nama untuk validasi cepat
+  const validCrewIdSet = new Set(allCrews.map(c => c.id.toString().trim().toUpperCase()));
+  const validCrewNameMap = new Map();
+  allCrews.forEach(c => {
+    if (c.nama) validCrewNameMap.set(c.nama.toString().trim().toLowerCase(), c);
+  });
+
+  const submissionMap = {}; // key: crewId -> { kodeCrew, namaCrew, modul, storeCount, stores: [] }
+  const seenStoreVisitSet = new Set(); // Key de-duplikasi: KODETOKO_RUTE_CREWID
+
+  // 1. Baca transaksi resmi dari sheet Rekap_Rute
+  try {
+    const ss = SpreadsheetApp.openById(CONFIG.MASTER_DATABASE_ID);
+    const sheet = ss.getSheetByName(SHEET_NAMES.REKAP) || ss.getSheetByName("Rekap_Rute");
+    
+    if (sheet) {
+      const values = sheet.getDataRange().getValues();
+      for (let i = 1; i < values.length; i++) {
+        const row = values[i];
+        const rute = (row[5] || "").toString().trim().replace(/^rute\s*/i, "");
+        if (rute !== targetRute) continue;
+
+        const kodeCrew = (row[3] || "").toString().trim().toUpperCase();
+        const namaCrew = (row[4] || "").toString().trim();
+        const kodeToko = (row[1] || "").toString().trim().toUpperCase();
+        const namaToko = (row[2] || "").toString().trim();
+        const modul = (row[6] || "").toString().trim();
+
+        if (kodeCrew === "RO036" || namaCrew.toLowerCase().includes("yohandi")) continue;
+        if (!kodeToko) continue;
+
+        // Cari identitas crew resmi
+        let matchedCrew = null;
+        if (validCrewIdSet.has(kodeCrew)) {
+          matchedCrew = allCrews.find(c => c.id.toString().trim().toUpperCase() === kodeCrew);
+        } else if (validCrewNameMap.has(namaCrew.toLowerCase())) {
+          matchedCrew = validCrewNameMap.get(namaCrew.toLowerCase());
+        }
+
+        const crewKey = matchedCrew ? matchedCrew.id : (kodeCrew || namaCrew.toLowerCase());
+        if (!crewKey) continue;
+
+        // De-duplikasi otomatis: 1 Toko per MDS per Rute hanya dihitung 1x
+        const visitKey = `${kodeToko}_${rute}_${crewKey}`;
+        if (seenStoreVisitSet.has(visitKey)) continue;
+        seenStoreVisitSet.add(visitKey);
+
+        if (!submissionMap[crewKey]) {
+          submissionMap[crewKey] = {
+            kodeCrew: matchedCrew ? matchedCrew.id : kodeCrew,
+            namaCrew: matchedCrew ? matchedCrew.nama : namaCrew,
+            modul: matchedCrew ? matchedCrew.modul : modul,
+            storeCount: 0,
+            stores: []
+          };
+        }
+
+        submissionMap[crewKey].storeCount += 1;
+        submissionMap[crewKey].stores.push({ kodeToko, namaToko });
+      }
+    }
+  } catch (err) {
+    Logger.log("Error reading Rekap_Rute: " + err.toString());
+  }
+
+  // 2. Scan spreadsheet masing-masing modul untuk mendeteksi inputan manual di Google Sheet
+  const groups = ["DK", "LK", "LP"];
+  for (let g = 0; g < groups.length; g++) {
+    const groupKey = groups[g];
+    const groupConfig = CONFIG[groupKey];
+    if (!groupConfig) continue;
+
+    for (const moduleName in groupConfig.MODULES) {
+      const spreadsheetId = groupConfig.MODULES[moduleName];
+      if (!spreadsheetId) continue;
+
+      try {
+        const ss = SpreadsheetApp.openById(spreadsheetId);
+        const sheet = ss.getSheetByName(SHEET_NAMES.MODULE_MASTER) || ss.getSheets()[0];
+        const values = sheet.getDataRange().getValues();
+        if (values.length < 2) continue;
+
+        for (let i = 1; i < values.length; i++) {
+          const row = values[i];
+          const rute = (row[5] || "").toString().trim().replace(/^rute\s*/i, "");
+          if (rute !== targetRute) continue;
+
+          const kodeCrew = (row[3] || "").toString().trim().toUpperCase();
+          const namaCrew = (row[4] || "").toString().trim();
+          const kodeToko = (row[1] || "").toString().trim().toUpperCase();
+          const namaToko = (row[2] || "").toString().trim();
+
+          if (kodeCrew === "RO036" || namaCrew.toLowerCase().includes("yohandi")) continue;
+          if (!kodeToko) continue;
+
+          // Verifikasi apakah kru terdaftar resmi
+          let matchedCrew = null;
+          if (validCrewIdSet.has(kodeCrew)) {
+            matchedCrew = allCrews.find(c => c.id.toString().trim().toUpperCase() === kodeCrew);
+          } else if (validCrewNameMap.has(namaCrew.toLowerCase())) {
+            matchedCrew = validCrewNameMap.get(namaCrew.toLowerCase());
+          }
+
+          if (!matchedCrew) continue; // Abaikan template atau baris kotor
+
+          // Validasi ketat: Hanya terima baris jika modul kru sesuai dengan spreadsheet modul yang di-scan
+          const cleanCrewModul = (matchedCrew.modul || "").toUpperCase().replace(/\s+/g, "");
+          const cleanSheetModul = moduleName.toUpperCase().replace(/\s+/g, "");
+          if (cleanCrewModul && cleanCrewModul !== cleanSheetModul) {
+            continue; // Tolak baris nyasar dari template modul lain
+          }
+
+          const crewKey = matchedCrew.id;
+          const visitKey = `${kodeToko}_${rute}_${crewKey}`;
+
+          // Jika toko ini belum tercatat (misal diinput manual via Google Sheet), masukkan!
+          if (!seenStoreVisitSet.has(visitKey)) {
+            seenStoreVisitSet.add(visitKey);
+
+            if (!submissionMap[crewKey]) {
+              submissionMap[crewKey] = {
+                kodeCrew: matchedCrew.id,
+                namaCrew: matchedCrew.nama,
+                modul: matchedCrew.modul || moduleName,
+                storeCount: 0,
+                stores: []
+              };
+            }
+
+            submissionMap[crewKey].storeCount += 1;
+            submissionMap[crewKey].stores.push({ kodeToko, namaToko });
+          }
+        }
+      } catch (err) {
+        Logger.log("Error scanning module " + moduleName + ": " + err.toString());
+      }
+    }
+  }
+
+  const submitted = [];
+  const pending = [];
+
+  allCrews.forEach(crew => {
+    const keyById = crew.id ? crew.id : "";
+    const keyByName = crew.nama ? crew.nama.toLowerCase() : "";
+
+    const sub = (keyById && submissionMap[keyById]) || (keyByName && submissionMap[keyByName]);
+
+    if (sub && sub.storeCount > 0) {
+      submitted.push({
+        id: crew.id,
+        nama: crew.nama,
+        modul: crew.modul || sub.modul,
+        account: crew.account || "",
+        storeCount: sub.storeCount,
+        stores: sub.stores
+      });
+    } else {
+      pending.push({
+        id: crew.id,
+        nama: crew.nama,
+        modul: crew.modul || "",
+        account: crew.account || ""
+      });
+    }
+  });
+
+  // Urutkan berdasarkan Modul & Nama
+  submitted.sort((a, b) => (a.modul + a.nama).localeCompare(b.modul + b.nama));
+  pending.sort((a, b) => (a.modul + a.nama).localeCompare(b.modul + b.nama));
+
+  const totalCrew = allCrews.length;
+  const submittedCount = submitted.length;
+  const pendingCount = pending.length;
+  const percentage = totalCrew > 0 ? Math.round((submittedCount / totalCrew) * 100) : 0;
+
+  return {
+    rute: targetRute,
+    totalCrew: totalCrew,
+    submittedCount: submittedCount,
+    pendingCount: pendingCount,
+    percentage: percentage,
+    submitted: submitted,
+    pending: pending
+  };
+}
+
+/**
+ * ==========================================================
+ * FUNGSI TEST MANUAL GOOGLE APPS SCRIPT
+ * ==========================================================
+ * Cara Menjalankan:
+ * 1. Di editor Google Apps Script, pilih fungsi 'testMonitoringMds' di dropdown toolbar atas
+ * 2. Klik tombol ▶️ 'Jalankan / Run'
+ * 3. Buka tab 'Log Eksekusi' di bagian bawah untuk melihat hasil monitoring realtime
+ */
+function testMonitoringMds() {
+  const targetRute = "3"; // Ganti nomor rute yang ingin di-test (misal: "3" atau "4")
+  Logger.log("==========================================");
+  Logger.log("🧪 MEMULAI TEST MONITORING MDS RUTE " + targetRute);
+  Logger.log("==========================================");
+  
+  const result = fetchMdsInputStatus(targetRute);
+  
+  Logger.log("📅 Target Rute         : Rute " + result.rute);
+  Logger.log("👥 Total MDS Lapangan  : " + result.totalCrew + " Orang");
+  Logger.log("✅ Sudah Input         : " + result.submittedCount + " Orang (" + result.percentage + "%)");
+  Logger.log("⏳ Belum Input         : " + result.pendingCount + " Orang");
+  
+  Logger.log("\n--- [DAFTAR MDS SUDAH INPUT] ---");
+  if (result.submitted.length === 0) {
+    Logger.log("(Belum ada yang input)");
+  } else {
+    result.submitted.forEach(function(c, i) {
+      Logger.log((i + 1) + ". [" + c.modul + "] " + c.nama + " (" + c.id + ") -> " + c.storeCount + " Toko");
+    });
+  }
+  
+  Logger.log("\n--- [DAFTAR MDS BELUM INPUT (Contoh 10 Teratas)] ---");
+  result.pending.slice(0, 10).forEach(function(c, i) {
+    Logger.log((i + 1) + ". [" + c.modul + "] " + c.nama + " (" + c.id + ")");
+  });
+  if (result.pending.length > 10) {
+    Logger.log("... dan " + (result.pending.length - 10) + " MDS lainnya.");
+  }
+  
+  Logger.log("\n==========================================");
+  Logger.log("🎉 TEST SELESAI DENGAN SUKSES!");
+  Logger.log("==========================================");
+}
+
+/**
+ * ==========================================================
+ * FUNGSI SINKRONISASI MASSAL SEMUA MODUL KE REKAP_RUTE
+ * ==========================================================
+ * Jalankan fungsi 'syncAllModuleInputsToRekap' ini sekali klik di Apps Script
+ * untuk menarik & menyalin SEMUA riwayat inputan dari tanggal 1 sampai sekarang
+ * dari 15 spreadsheet modul ke sheet 'Rekap_Rute' (dengan auto-deduplikasi).
+ */
+function syncAllModuleInputsToRekap() {
+  Logger.log("==========================================================");
+  Logger.log("🔄 MEMULAI SINKRONISASI MASSAL SEMUA MODUL KE REKAP_RUTE");
+  Logger.log("==========================================================");
+
+  const allCrews = fetchCrewList().filter(c => {
+    const id = (c.id || "").toString().trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
+    const nama = (c.nama || "").toLowerCase();
+    if (id === "RO036" || nama.includes("yohandi")) return false;
+    return true;
+  });
+
+  const validCrewIdSet = new Set(allCrews.map(c => c.id.toString().trim().toUpperCase()));
+  const validCrewNameMap = new Map();
+  allCrews.forEach(c => {
+    if (c.nama) validCrewNameMap.set(c.nama.toString().trim().toLowerCase(), c);
+  });
+
+  const ssMaster = SpreadsheetApp.openById(CONFIG.MASTER_DATABASE_ID);
+  const sheetName = "Rekap_Rute";
+  let sheetRekap = ssMaster.getSheetByName(sheetName);
+
+  if (!sheetRekap) {
+    sheetRekap = ssMaster.insertSheet(sheetName);
+    const headers = [
+      ["ACCOUNT", "KODE TOKO", "NAMA TOKO", "KODE CREW", "NAMA CREW", "RUTE", "MODUL", "STATUS KUNJUNGAN", "ALASAN RE-VISIT", "WAKTU INPUT"]
+    ];
+    sheetRekap.getRange(1, 1, 1, headers[0].length).setValues(headers);
+    sheetRekap.getRange(1, 1, 1, headers[0].length)
+      .setFontWeight("bold")
+      .setBackground("#4f46e5")
+      .setFontColor("#ffffff");
+  }
+
+  // Baca data yang sudah ada di Rekap_Rute untuk menghindari duplikat
+  const existingValues = sheetRekap.getDataRange().getValues();
+  const existingKeys = new Set();
+  for (let i = 1; i < existingValues.length; i++) {
+    const row = existingValues[i];
+    const kode = (row[1] || "").toString().trim().toUpperCase();
+    const rute = (row[5] || "").toString().trim().replace(/^rute\s*/i, "");
+    const crew = (row[3] || row[4] || "").toString().trim().toUpperCase();
+    if (kode && rute && crew) {
+      existingKeys.add(`${kode}_${rute}_${crew}`);
+    }
+  }
+
+  const rowsToInsert = [];
+  const nowFormatted = Utilities.formatDate(new Date(), "Asia/Jakarta", "yyyy-MM-dd HH:mm:ss");
+  const groups = ["DK", "LK", "LP"];
+
+  for (let g = 0; g < groups.length; g++) {
+    const groupKey = groups[g];
+    const groupConfig = CONFIG[groupKey];
+    if (!groupConfig) continue;
+
+    for (const moduleName in groupConfig.MODULES) {
+      const spreadsheetId = groupConfig.MODULES[moduleName];
+      if (!spreadsheetId) continue;
+
+      try {
+        const ssMod = SpreadsheetApp.openById(spreadsheetId);
+        const sheetMod = ssMod.getSheetByName(SHEET_NAMES.MODULE_MASTER) || ssMod.getSheets()[0];
+        const values = sheetMod.getDataRange().getValues();
+
+        if (values.length < 2) continue;
+
+        let addedFromThisModule = 0;
+        for (let i = 1; i < values.length; i++) {
+          const row = values[i];
+          const account = (row[0] || "ALFAMART").toString().trim().toUpperCase();
+          const kodeToko = (row[1] || "").toString().trim().toUpperCase();
+          const namaToko = (row[2] || "").toString().trim();
+          const kodeCrew = (row[3] || "").toString().trim().toUpperCase();
+          const namaCrew = (row[4] || "").toString().trim();
+          const rute = (row[5] || "").toString().trim().replace(/^rute\s*/i, "");
+
+          if (!kodeToko || !rute) continue;
+          if (kodeCrew === "RO036" || namaCrew.toLowerCase().includes("yohandi")) continue;
+
+          // Validasi crew resmi
+          let matchedCrew = null;
+          if (validCrewIdSet.has(kodeCrew)) {
+            matchedCrew = allCrews.find(c => c.id.toString().trim().toUpperCase() === kodeCrew);
+          } else if (validCrewNameMap.has(namaCrew.toLowerCase())) {
+            matchedCrew = validCrewNameMap.get(namaCrew.toLowerCase());
+          }
+
+          if (!matchedCrew) continue; // Abaikan baris template yang tidak valid
+
+          // Validasi ketat: Hanya sinkronkan data jika modul kru sesuai dengan spreadsheet modulnya
+          const cleanCrewModul = (matchedCrew.modul || "").toUpperCase().replace(/\s+/g, "");
+          const cleanSheetModul = moduleName.toUpperCase().replace(/\s+/g, "");
+          if (cleanCrewModul && cleanCrewModul !== cleanSheetModul) {
+            continue; // Tolak baris nyasar dari template modul lain
+          }
+
+          const finalCrewId = matchedCrew.id;
+          const finalCrewName = matchedCrew.nama;
+          const finalModul = matchedCrew.modul || moduleName;
+
+          const key = `${kodeToko}_${rute}_${finalCrewId}`;
+          if (existingKeys.has(key)) continue; // Hindari duplikasi
+
+          existingKeys.add(key);
+          rowsToInsert.push([
+            account,
+            kodeToko,
+            namaToko,
+            finalCrewId,
+            finalCrewName,
+            rute,
+            finalModul,
+            "Kunjungan Pertama",
+            "-",
+            nowFormatted
+          ]);
+          addedFromThisModule++;
+        }
+
+        if (addedFromThisModule > 0) {
+          Logger.log(`✅ Modul ${moduleName}: Mengambil ${addedFromThisModule} baris kunjungan`);
+        }
+      } catch (err) {
+        Logger.log(`⚠️ Gagal membaca modul ${moduleName}: ${err.toString()}`);
+      }
+    }
+  }
+
+  if (rowsToInsert.length > 0) {
+    const lastRow = sheetRekap.getLastRow();
+    sheetRekap.getRange(lastRow + 1, 1, rowsToInsert.length, rowsToInsert[0].length).setValues(rowsToInsert);
+    Logger.log("==========================================================");
+    Logger.log(`🎉 BERHASIL MENYINKRONKAN ${rowsToInsert.length} BARIS KE REKAP_RUTE!`);
+    Logger.log("==========================================================");
+  } else {
+    Logger.log("==========================================================");
+    Logger.log("ℹ️ Semua data dari 15 spreadsheet modul sudah tersinkronkan penuh ke Rekap_Rute.");
+    Logger.log("==========================================================");
+  }
+}
+
+/**
+ * ==========================================================
+ * FUNGSI BERSIHKAN & SINKRONKAN ULANG REKAP_RUTE SECARA BERSIH
+ * ==========================================================
+ * Menghapus baris kotor/nyasar di sheet 'Rekap_Rute', lalu mengisi ulang
+ * hanya data kunjungan yang 100% valid sesuai modul resmi masing-masing MDS.
+ */
+function cleanAndResyncRekapRute() {
+  Logger.log("🧹 Mengosongkan data lama di Rekap_Rute...");
+  const ssMaster = SpreadsheetApp.openById(CONFIG.MASTER_DATABASE_ID);
+  const sheetRekap = ssMaster.getSheetByName("Rekap_Rute");
+  
+  if (sheetRekap && sheetRekap.getLastRow() > 1) {
+    sheetRekap.deleteRows(2, sheetRekap.getLastRow() - 1);
+  }
+  
+  Logger.log("🔄 Menjalankan sinkronisasi ulang bersih...");
+  syncAllModuleInputsToRekap();
+}
+
+
+
 

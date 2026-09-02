@@ -423,3 +423,29 @@ async function deleteScheduledStoreFromCloud({ module, rute, crewCode, kodeToko 
   }
 }
 
+/**
+ * Mengambil Status Monitoring Input Realtime Seluruh MDS per Rute
+ */
+async function fetchMdsMonitoringStatus(rute) {
+  const gasUrl = API_CONFIG.getGasUrl();
+  if (!gasUrl) throw new Error("URL Google Apps Script belum disetel");
+
+  const queryUrl = `${gasUrl}?action=get_monitoring_status&rute=${encodeURIComponent(rute)}`;
+
+  try {
+    const response = await fetch(queryUrl);
+    if (!response.ok) throw new Error(`HTTP Error: ${response.status}`);
+
+    const result = await response.json();
+    if (result.status === "success") {
+      return result.data;
+    } else {
+      throw new Error(result.message || "Gagal mengambil status monitoring");
+    }
+  } catch (err) {
+    console.error("Gagal mengambil status monitoring MDS:", err);
+    throw err;
+  }
+}
+
+
