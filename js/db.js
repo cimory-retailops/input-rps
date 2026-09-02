@@ -112,8 +112,12 @@ async function saveCrewList(crews) {
     crewOS.clear();
 
     crews.forEach((c, idx) => {
-      crewOS.add({
-        id: c.id || `crew_${idx}`,
+      const cleanModul = (c.modul || "").replace(/\s+/g, "").toUpperCase();
+      const uniqueKey = `${c.id || 'crew'}_${cleanModul}_${idx}`;
+
+      crewOS.put({
+        id: uniqueKey,
+        crewCode: c.id || "",
         nama: c.nama || "",
         modul: c.modul || "",
         account: c.account || "",
@@ -136,7 +140,17 @@ async function getAllCrew() {
     const crewOS = tx.objectStore("crew");
     const request = crewOS.getAll();
 
-    request.onsuccess = () => resolve(request.result || []);
+    request.onsuccess = () => {
+      const list = request.result || [];
+      const normalized = list.map(c => ({
+        id: c.crewCode || c.id,
+        nama: c.nama || "",
+        modul: c.modul || "",
+        account: c.account || "",
+        jabatan: c.jabatan || ""
+      }));
+      resolve(normalized);
+    };
     request.onerror = (e) => reject(e.target.error);
   });
 }
