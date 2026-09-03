@@ -3,8 +3,9 @@
  */
 
 const API_CONFIG = {
-  // URL Default Spreadsheet Master 34k Toko & Crew
+  // URL Default Spreadsheet Master 34k/49k Toko & Crew
   MASTER_SHEET_ID: "16cokFfnQFIajmTd553TKy-CfkNFc1Gg7ElkhAer81QA",
+  MASTER_STORE_GID: "1970488135", // GID Tab master_toko (49.469+ Seluruh Toko Lengkap)
   
   // URL Google Apps Script Web App Default
   DEFAULT_GAS_URL: "https://script.google.com/macros/s/AKfycby1QQCwXusMhaEtm79iVISFjrZ3H6RxGOTi3vTXcYF-Xvv9SOk-X4HkugRUEe1E2-pZHQ/exec",
@@ -52,15 +53,20 @@ function parseCSV(text) {
 }
 
 /**
- * Sinkronisasi Master Toko 34.000+ dari Google Spreadsheet
+ * Sinkronisasi Master Toko 49.000+ dari Google Spreadsheet
  */
 async function syncMasterStoresFromSheet(onProgress) {
-  const url = `https://docs.google.com/spreadsheets/d/${API_CONFIG.MASTER_SHEET_ID}/gviz/tq?tqx=out:csv&sheet=Master_Toko`;
+  // Unduh langsung dengan direct GID export (49.469+ toko lengkap)
+  let url = `https://docs.google.com/spreadsheets/d/${API_CONFIG.MASTER_SHEET_ID}/export?format=csv&gid=${API_CONFIG.MASTER_STORE_GID}`;
   
-  if (onProgress) onProgress("Mengunduh data toko dari Google Sheet...", 25);
+  if (onProgress) onProgress("Mengunduh 49.000+ data toko & GPS...", 20);
   await new Promise(r => setTimeout(r, 40));
   
-  const response = await fetch(url);
+  let response = await fetch(url);
+  if (!response.ok) {
+    url = `https://docs.google.com/spreadsheets/d/${API_CONFIG.MASTER_SHEET_ID}/gviz/tq?tqx=out:csv&sheet=master_toko`;
+    response = await fetch(url);
+  }
   if (!response.ok) {
     throw new Error(`Gagal mengunduh spreadsheet: status ${response.status}`);
   }
@@ -75,49 +81,75 @@ async function syncMasterStoresFromSheet(onProgress) {
     throw new Error("Data spreadsheet kosong atau format tidak sesuai");
   }
 
-  // Cari index kolom
-  const headers = rows[0].map(h => h.toLowerCase().replace(/[^a-z0-9]/g, ""));
-  const codeIdx = headers.findIndex(h => h.includes("storecode") || h.includes("kodetoko") || h.includes("code"));
-  const nameIdx = headers.findIndex(h => h.includes("namatoko") || h.includes("storename") || h.includes("nama"));
-  const typeIdx = headers.findIndex(h => h.includes("tipe") || h.includes("account") || h.includes("type"));
-  const dcIdx = headers.findIndex(h => h.includes("dcname") || h.includes("dc"));
-  const kecIdx = headers.findIndex(h => h.includes("kecamatan"));
-  const kotaIdx = headers.findIndex(h => h.includes("kabkota") || h.includes("kota"));
-  const latIdx = headers.findIndex(h => h.includes("latitude") || h.includes("lat"));
-  const lonIdx = headers.findIndex(h => h.includes("longitude") || h.includes("long") || h.includes("lon") || h.includes("lng"));
+  // Standar index kolom default (0:Code, 1:DcCode, 2:DcName, 3:StoreName, 4:Kec, 5:Kota, 6:PostCode, 7:Lat, 8:Lon, 9:Account)
+  let codeIdx = 0;
+  let dcIdx = 2;
+  let nameIdx = 3;
+  let kecIdx = 4;
+  let kotaIdx = 5;
+  let latIdx = 7;
+  let lonIdx = 8;
+  let typeIdx = 9;
 
-  const storeMap = new Map(); // key: kodeToko
-  for (let i = 1; i < rows.length; i++) {
+  // Deteksi jika baris pertama memiliki header yang valid
+  if (rows[0] && rows[0].length >= 8) {
+    const headers = rows[0].map(h => (h || "").toString().toLowerCase().replace(/[^a-z0-9]/g, ""));
+    const foundCode = headers.findIndex(h => h.includes("storecode") || h.includes("kodetoko") || h === "code");
+    const foundName = headers.findIndex(h => h.includes("namatoko") || h.includes("storename"));
+    const foundType = headers.findIndex(h => h.includes("tipe") || h.includes("account") || h.includes("type"));
+    const foundDc = headers.findIndex(h => h.includes("dcname") || h.includes("dc"));
+    const foundKec = headers.findIndex(h => h.includes("kecamatan"));
+    const foundKota = headers.findIndex(h => h.includes("kabkota") || h.includes("kota"));
+    const foundLat = headers.findIndex(h => h.includes("latitude") || h === "lat");
+    const foundLon = headers.findIndex(h => h.includes("longitude") || h.includes("long") || h === "lon" || h === "lng");
+
+    if (foundCode >= 0) codeIdx = foundCode;
+    if (foundName >= 0) nameIdx = foundName;
+    if (foundType >= 0) typeIdx = foundType;
+    if (foundDc >= 0) dcIdx = foundDc;
+    if (foundKec >= 0) kecIdx = foundKec;
+    if (foundKota >= 0) kotaIdx = foundKota;
+    if (foundLat >= 0) latIdx = foundLat;
+    if (foundLon >= 0) lonIdx = foundLon;
+  }
+
+  const storeMap = new Map(); // key: kodeToko_account
+  for (let i = 0; i < rows.length; i++) {
     const row = rows[i];
-    const kode = (row[codeIdx >= 0 ? codeIdx : 0] || "").trim().toUpperCase();
-    const nama = (row[nameIdx >= 0 ? nameIdx : 3] || "").trim();
-    if (!kode && !nama) continue;
+    if (!row || row.length < 4) continue;
 
-    const latRaw = row[latIdx >= 0 ? latIdx : 7];
-    const lonRaw = row[lonIdx >= 0 ? lonIdx : 8];
-    const lat = latRaw ? parseFloat(latRaw.replace(",", ".")) : null;
-    const lon = lonRaw ? parseFloat(lonRaw.replace(",", ".")) : null;
+    const kode = (row[codeIdx] || row[0] || "").toString().trim().toUpperCase();
+    const nama = (row[nameIdx] || row[3] || "").toString().trim();
+
+    // Skip baris header / sampah teks
+    if (!kode || kode === "STORE CODE" || kode.includes(" ") || nama.length < 2) continue;
+
+    const latRaw = row[latIdx] || row[7];
+    const lonRaw = row[lonIdx] || row[8];
+    const lat = latRaw ? parseFloat(latRaw.toString().replace(",", ".")) : null;
+    const lon = lonRaw ? parseFloat(lonRaw.toString().replace(",", ".")) : null;
 
     const storeObj = {
       kodeToko: kode,
       namaToko: nama,
-      account: (row[typeIdx >= 0 ? typeIdx : 9] || "ALFAMART").trim().toUpperCase(),
-      dcName: (row[dcIdx >= 0 ? dcIdx : 2] || "").trim(),
-      kecamatan: (row[kecIdx >= 0 ? kecIdx : 5] || "").trim(),
-      kota: (row[kotaIdx >= 0 ? kotaIdx : 6] || "").trim(),
-      lat: !isNaN(lat) && lat !== null ? lat : null,
-      lon: !isNaN(lon) && lon !== null ? lon : null
+      account: (row[typeIdx] || row[9] || "ALFAMART").toString().trim().toUpperCase(),
+      dcName: (row[dcIdx] || row[2] || "").toString().trim(),
+      kecamatan: (row[kecIdx] || row[4] || "").toString().trim(),
+      kota: (row[kotaIdx] || row[5] || "").toString().trim(),
+      lat: !isNaN(lat) && lat !== null && lat !== 0 ? lat : null,
+      lon: !isNaN(lon) && lon !== null && lon !== 0 ? lon : null
     };
 
-    // De-duplikasi cerdas:
-    // Jika kode toko sudah ada, prioritaskan record yang punya koordinat GPS lengkap
-    if (storeMap.has(kode)) {
-      const existing = storeMap.get(kode);
+    // De-duplikasi cerdas dengan Composite Key (Kode Toko + Akun):
+    const uniqueKey = `${kode}_${storeObj.account}`;
+    if (storeMap.has(uniqueKey)) {
+      const existing = storeMap.get(uniqueKey);
+      // Jika yang lama belum punya GPS tapi baris ini punya, update dengan yang punya GPS
       if ((!existing.lat || !existing.lon) && (storeObj.lat && storeObj.lon)) {
-        storeMap.set(kode, storeObj);
+        storeMap.set(uniqueKey, storeObj);
       }
     } else {
-      storeMap.set(kode, storeObj);
+      storeMap.set(uniqueKey, storeObj);
     }
   }
 

@@ -196,22 +196,100 @@ async function checkIfStoresHaveCoordinates() {
 }
 
 /**
- * Ambil detail toko berdasarkan Kode Toko dari IndexedDB
+ * Ambil detail toko berdasarkan Kode Toko, Akun, atau Nama Toko (Smart Fallback)
  */
-async function getStoreByCode(kodeToko) {
-  if (!kodeToko) return null;
-  const cleanCode = kodeToko.toString().trim();
+async function getStoreByCode(kodeToko, account = "", namaToko = "") {
+  if (!kodeToko && !namaToko) return null;
+  const cleanCode = (kodeToko || "").toString().trim().toUpperCase();
+  const cleanAccount = (account || "").toString().trim().toUpperCase();
+  const cleanName = (namaToko || "")
+    .toString()
+    .toLowerCase()
+    .replace(/\[.*?\]/g, "")
+    .replace(/[^a-z0-9 ]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
   const db = await initDB();
 
   return new Promise((resolve) => {
     const tx = db.transaction("stores", "readonly");
     const storeOS = tx.objectStore("stores");
-    const idx = storeOS.index("kodeToko");
-    const req = idx.get(cleanCode);
 
-    req.onsuccess = () => resolve(req.result || null);
-    req.onerror = () => resolve(null);
+    // 1. Coba cari berdasarkan Kode Toko
+    if (cleanCode) {
+      const idx = storeOS.index("kodeToko");
+      const req = idx.getAll(cleanCode);
+
+      req.onsuccess = () => {
+        const results = req.result || [];
+        if (results.length > 0) {
+          // Jika ada filter account, cari yang account-nya cocok dan punya GPS
+          if (cleanAccount) {
+            const exactMatch = results.find(r => (r.account || "").toUpperCase() === cleanAccount && r.lat && r.lon);
+            if (exactMatch) return resolve(exactMatch);
+            const accountMatch = results.find(r => (r.account || "").toUpperCase() === cleanAccount);
+            if (accountMatch) return resolve(accountMatch);
+          }
+
+          // Cari yang memiliki koordinat GPS lengkap
+          const gpsMatch = results.find(r => r.lat && r.lon && !isNaN(r.lat) && !isNaN(r.lon));
+          if (gpsMatch) return resolve(gpsMatch);
+
+          return resolve(results[0]);
+        }
+
+        // Jika kode tidak ketemu (misal kode Alfamart vs Indomaret), cari via Nama Toko
+        if (cleanName && cleanName.length >= 4) {
+          fallbackSearchByName(storeOS, cleanName, resolve);
+        } else {
+          resolve(null);
+        }
+      };
+      req.onerror = () => {
+        if (cleanName && cleanName.length >= 4) {
+          fallbackSearchByName(storeOS, cleanName, resolve);
+        } else {
+          resolve(null);
+        }
+      };
+    } else if (cleanName && cleanName.length >= 4) {
+      fallbackSearchByName(storeOS, cleanName, resolve);
+    } else {
+      resolve(null);
+    }
   });
+}
+
+function fallbackSearchByName(storeOS, cleanName, resolve) {
+  const req = storeOS.openCursor();
+  let candidateWithGps = null;
+  let candidateAny = null;
+
+  req.onsuccess = (e) => {
+    const cursor = e.target.result;
+    if (cursor) {
+      const item = cursor.value;
+      const itemName = (item.namaToko || "")
+        .toLowerCase()
+        .replace(/\[.*?\]/g, "")
+        .replace(/[^a-z0-9 ]/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+
+      if (itemName && (itemName === cleanName || itemName.startsWith(cleanName) || cleanName.startsWith(itemName) || itemName.includes(cleanName) || cleanName.includes(itemName))) {
+        if (item.lat && item.lon && !isNaN(item.lat) && !isNaN(item.lon)) {
+          candidateWithGps = item;
+          return resolve(item); // Prioritaskan langsung yang memiliki koordinat GPS!
+        }
+        if (!candidateAny) candidateAny = item;
+      }
+      cursor.continue();
+    } else {
+      resolve(candidateWithGps || candidateAny || null);
+    }
+  };
+  req.onerror = () => resolve(candidateWithGps || candidateAny || null);
 }
 
 /**
@@ -301,7 +379,7 @@ async function searchStores({ query = "", accountFilter = "ALL", limit = 60 }) {
         }
 
         if (matchesQuery) {
-          const codeKey = (item.kodeToko || "").trim().toUpperCase();
+          const codeKey = `${(item.kodeToko || "").trim().toUpperCase()}_${(item.account || "").trim().toUpperCase()}`;
           if (!seenCodes.has(codeKey)) {
             seenCodes.add(codeKey);
             results.push(item);

@@ -637,8 +637,8 @@ async function triggerMasterSyncWithOverlay() {
   state.isSyncing = true;
 
   showBlockingLoader(
-    "Menyinkronkan Data Toko",
-    "Mengunduh data toko & koordinat GPS dari Google Sheet...",
+    "Menyinkronkan Database Toko",
+    "Mengunduh seluruh data toko & koordinat GPS terbaru dari Google Sheet...",
     true
   );
 
@@ -649,6 +649,8 @@ async function triggerMasterSyncWithOverlay() {
 
     await syncMasterCrewFromSheet();
     updateBlockingLoaderProgress(100, "Menyimpan ke IndexedDB...");
+
+    localStorage.setItem("mds_last_store_sync", new Date().toLocaleString("id-ID"));
 
     setTimeout(async () => {
       hideBlockingLoader();
@@ -771,10 +773,26 @@ function bindEvents() {
 
   // Forms
   document.getElementById("profileForm")?.addEventListener("submit", handleProfileSave);
-  document.getElementById("settingsForm")?.addEventListener("submit", handleSettingsSave);
   document.getElementById("btnForceSync")?.addEventListener("click", () => {
     elements.settingsModal.classList.remove("active");
     triggerMasterSyncWithOverlay();
+  });
+  document.getElementById("btnHardRefreshMobile")?.addEventListener("click", async () => {
+    showBlockingLoader("Membersihkan Cache...", "Menghapus cache browser HP dan memuat file terbaru...", false);
+    try {
+      if ("caches" in window) {
+        const keys = await caches.keys();
+        await Promise.all(keys.map(k => caches.delete(k)));
+      }
+      localStorage.removeItem("mds_last_store_sync");
+      setTimeout(() => {
+        const url = new URL(window.location.href);
+        url.searchParams.set("_v", Date.now().toString());
+        window.location.replace(url.toString());
+      }, 400);
+    } catch (e) {
+      window.location.reload(true);
+    }
   });
 
   // Help Modal & Interactive Tour
@@ -984,7 +1002,7 @@ function renderFloatingSearchResults(stores, showContainer = true) {
       `;
     }
 
-    const hasGps = store.lat && store.lon && !isNaN(store.lat) && !isNaN(store.lon);
+    const hasGps = store.lat !== null && store.lat !== undefined && store.lon !== null && store.lon !== undefined && !isNaN(Number(store.lat)) && !isNaN(Number(store.lon)) && (Number(store.lat) !== 0 || Number(store.lon) !== 0);
     const noGpsBadgeHtml = !hasGps ? `<span style="font-size:9px; background: rgba(148, 163, 184, 0.2); color: var(--text-muted); padding: 1px 5px; border-radius: 99px; font-weight: 600;">📍 No GPS</span>` : '';
 
     html += `
@@ -1042,17 +1060,36 @@ window.editStoreByCode = async function(kodeToko) {
 /**
  * Fly-to Store di Peta saat diklik dari list
  */
-window.flyToStoreOnMap = function(kodeToko) {
-  const store = state.searchResults.find(s => s.kodeToko === kodeToko) 
+window.flyToStoreOnMap = async function(kodeToko, account = "", namaToko = "") {
+  let store = state.searchResults.find(s => s.kodeToko === kodeToko && (!account || (s.account || '').toUpperCase() === account.toUpperCase()))
+    || state.scheduleStores.find(s => s.kodeToko === kodeToko && (!account || (s.account || '').toUpperCase() === account.toUpperCase()))
+    || state.searchResults.find(s => s.kodeToko === kodeToko)
     || state.scheduleStores.find(s => s.kodeToko === kodeToko)
     || state.selectedStores.get(kodeToko);
 
+  // Jika di memori sementara belum ada koordinat, coba ambil langsung dari IndexedDB (dengan fallback nama toko)
   if (!store || !store.lat || !store.lon) {
+    const fromDb = await getStoreByCode(kodeToko, account, namaToko || (store ? store.namaToko : ""));
+    if (fromDb && fromDb.lat && fromDb.lon) {
+      if (store) {
+        store.lat = fromDb.lat;
+        store.lon = fromDb.lon;
+        store.kecamatan = fromDb.kecamatan || store.kecamatan;
+        store.kota = fromDb.kota || store.kota;
+      } else {
+        store = fromDb;
+      }
+    }
+  }
+
+  const hasValidGps = store && store.lat !== null && store.lat !== undefined && store.lon !== null && store.lon !== undefined && !isNaN(Number(store.lat)) && !isNaN(Number(store.lon)) && (Number(store.lat) !== 0 || Number(store.lon) !== 0);
+
+  if (!hasValidGps) {
     showToast("Toko belum ada titik peta, tapi TETAP BISA dipilih ke rute via tombol (+)", "info");
     return;
   }
 
-  map.flyTo([store.lat, store.lon], 17, { duration: 1.2 });
+  map.flyTo([Number(store.lat), Number(store.lon)], 17, { duration: 1.2 });
   if (elements.searchResultsFloating) {
     elements.searchResultsFloating.style.display = "none";
   }
@@ -1454,12 +1491,12 @@ async function loadScheduledStores() {
     for (let i = 0; i < stores.length; i++) {
       const st = stores[i];
       if (!st.lat || !st.lon) {
-        const localDetail = await getStoreByCode(st.kodeToko);
+        const localDetail = await getStoreByCode(st.kodeToko, st.account, st.namaToko);
         if (localDetail) {
           st.lat = localDetail.lat;
           st.lon = localDetail.lon;
-          st.kecamatan = localDetail.kecamatan;
-          st.kota = localDetail.kota;
+          st.kecamatan = localDetail.kecamatan || st.kecamatan;
+          st.kota = localDetail.kota || st.kota;
         }
       }
     }
@@ -1482,7 +1519,7 @@ async function loadScheduledStores() {
       stores.forEach((st, idx) => {
         const brandClass = getBrandClass(st.account);
         html += `
-          <div class="store-card-compact" onclick="flyToStoreOnMap('${escapeHtml(st.kodeToko)}')">
+          <div class="store-card-compact" onclick="flyToStoreOnMap('${escapeHtml(st.kodeToko)}', '${escapeHtml(st.account || '')}', '${escapeHtml(st.namaToko || '')}')">
             <div style="flex: 1; min-width: 0;">
               <div class="store-badges">
                 <span class="badge-code">#${idx + 1} &bull; ${escapeHtml(st.kodeToko)}</span>
@@ -2000,21 +2037,23 @@ async function handleProfileSave(e) {
 /**
  * Modal Settings Handler
  */
-function openSettingsModal() {
+async function openSettingsModal() {
   const modal = elements.settingsModal;
-  const gasInput = document.getElementById("gasApiUrlInput");
-  if (gasInput) {
-    gasInput.value = API_CONFIG.getGasUrl();
-  }
-  modal.classList.add("active");
-}
 
-function handleSettingsSave(e) {
-  e.preventDefault();
-  const gasUrl = document.getElementById("gasApiUrlInput").value.trim();
-  API_CONFIG.setGasUrl(gasUrl);
-  elements.settingsModal.classList.remove("active");
-  showToast("Pengaturan berhasil disimpan!", "success");
+  // Tampilkan jumlah toko dinamis dan waktu sinkronisasi terakhir
+  try {
+    const count = await getStoresCount();
+    const badge = document.getElementById("dbStatusBadge");
+    const lastSync = document.getElementById("dbLastSyncText");
+    const lastSyncTime = localStorage.getItem("mds_last_store_sync") || "Belum pernah";
+
+    if (badge) badge.textContent = `${count.toLocaleString()} Toko`;
+    if (lastSync) lastSync.textContent = `Terakhir disinkronkan: ${lastSyncTime}`;
+  } catch (e) {
+    console.warn("Gagal membaca status DB:", e);
+  }
+
+  modal.classList.add("active");
 }
 
 /**
@@ -2143,8 +2182,8 @@ const TOUR_STEPS = [
   },
   {
     target: "#searchInput",
-    title: "🔍 4. Cari dari 34.000+ Toko",
-    desc: "Ketik nama toko, kode toko, atau nama kecamatan. Sistem membaca database lokal 34k toko secara instan tanpa perlu koneksi lambat.",
+    title: "🔍 4. Cari dari Seluruh Master Toko",
+    desc: "Ketik nama toko, kode toko, atau nama kecamatan. Sistem membaca database lokal seluruh toko secara instan tanpa perlu koneksi lambat.",
     tip: "Gunakan tombol filter brand di bawahnya untuk menyaring Indomaret, Alfamart, Alfamidi, atau Lawson."
   },
   {

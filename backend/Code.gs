@@ -59,9 +59,12 @@ const CONFIG = {
 
 // Nama Sheet Standar
 const SHEET_NAMES = {
-  MODULE_MASTER: "Master_Toko",
-  EXTERNAL_MASTER: "Master_Toko2",
-  ABSEN: "Toko_Absen"
+  MASTER_DATABASE_TOKO: "master_toko", // Tab 34k database toko di Master Spreadsheet
+  CREW: "master_user",                 // Tab Master User di Master Spreadsheet
+  REKAP: "Rekap_Rute",                 // Tab Rekap Global di Master Spreadsheet
+  MODULE_MASTER: "Master_Toko",        // Tab Output Toko di Spreadsheet Modul (DK, LK, LP)
+  EXTERNAL_MASTER: "Master_Toko2",     // Tab Output di Spreadsheet Data External
+  ABSEN: "Toko_Absen"                  // Tab Output di Spreadsheet Absen
 };
 
 /**
@@ -352,7 +355,7 @@ function appendRekapToMasterDatabase(rows) {
  */
 function saveOrUpdateMasterStore(store) {
   const ss = SpreadsheetApp.openById(CONFIG.MASTER_DATABASE_ID);
-  const sheet = ss.getSheetByName(SHEET_NAMES.MODULE_MASTER) || ss.getSheets()[0];
+  const sheet = ss.getSheetByName(SHEET_NAMES.MASTER_DATABASE_TOKO) || ss.getSheetByName("master_toko") || ss.getSheetByName("Master_Toko") || ss.getSheets()[0];
   const values = sheet.getDataRange().getValues();
 
   const kodeTarget = (store.kodeToko || store.kode || "").toString().trim().toUpperCase();

@@ -426,41 +426,45 @@
       <div class="modal-header">
         <div class="modal-title">
           <i data-lucide="sliders" style="color: var(--primary);"></i>
-          <span>Pengaturan Cloud API & GIS</span>
+          <span>Pengaturan & Pemeliharaan Database</span>
         </div>
         <button type="button" class="btn-icon-mini" onclick="document.getElementById('settingsModal').classList.remove('active')">
           <i data-lucide="x" style="width: 16px; height: 16px;"></i>
         </button>
       </div>
-      <form id="settingsForm">
-        <div class="modal-body">
-          <div class="form-group">
-            <label class="form-label">Google Apps Script Web App URL</label>
-            <input 
-              type="url" 
-              class="form-control" 
-              id="gasApiUrlInput" 
-              placeholder="https://script.google.com/macros/s/.../exec"
-            >
+      <div class="modal-body">
+        <div class="form-group">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+            <label class="form-label" style="margin-bottom: 0;">Database Master Toko & GIS</label>
+            <span id="dbStatusBadge" style="font-size: 11px; font-weight: 700; color: var(--primary);">Memuat data...</span>
           </div>
-
-          <hr style="border: none; border-top: 1px solid var(--border); margin: 6px 0;">
-
-          <div class="form-group">
-            <label class="form-label">Database Toko & Koordinat GPS (IndexedDB)</label>
-            <button type="button" class="btn-secondary" id="btnForceSync" style="justify-content: center;">
-              <i data-lucide="refresh-cw"></i>
-              <span>Sinkronkan Ulang List Toko (Lat/Lon)</span>
-            </button>
-          </div>
-        </div>
-        <div class="modal-footer">
-          <button type="submit" class="btn-primary" style="width: 100%;">
-            <i data-lucide="check"></i>
-            <span>Simpan Pengaturan</span>
+          <p style="font-size: 11px; color: var(--text-muted); margin-bottom: 8px;" id="dbLastSyncText">
+            Toko disinkronkan secara dinamis langsung dari Google Sheet.
+          </p>
+          <button type="button" class="btn-secondary" id="btnForceSync" style="justify-content: center; width: 100%;">
+            <i data-lucide="refresh-cw"></i>
+            <span id="btnForceSyncLabel">Sinkronkan Data Toko Terbaru</span>
           </button>
         </div>
-      </form>
+
+        <hr style="border: none; border-top: 1px solid var(--border); margin: 6px 0;">
+
+        <div class="form-group">
+          <label class="form-label">Perawatan Browser HP (Cache & Reload)</label>
+          <p style="font-size: 11px; color: var(--text-muted); margin-bottom: 8px;">
+            Gunakan tombol ini jika web di HP belum menampilkan update file terbaru.
+          </p>
+          <button type="button" class="btn-secondary" id="btnHardRefreshMobile" style="justify-content: center; width: 100%; border-color: var(--primary); color: var(--primary); font-weight: 600;">
+            <i data-lucide="zap"></i>
+            <span>⚡ Hard Refresh & Bersihkan Cache HP</span>
+          </button>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn-secondary" onclick="document.getElementById('settingsModal').classList.remove('active')" style="width: 100%;">
+          <span>Tutup</span>
+        </button>
+      </div>
     </div>
   </div>
 
