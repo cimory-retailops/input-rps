@@ -57,7 +57,7 @@ function parseCSV(text) {
 async function syncMasterStoresFromSheet(onProgress) {
   const url = `https://docs.google.com/spreadsheets/d/${API_CONFIG.MASTER_SHEET_ID}/gviz/tq?tqx=out:csv&sheet=Master_Toko`;
   
-  if (onProgress) onProgress("Mengunduh 34.000+ data toko dari Google Sheet...", 25);
+  if (onProgress) onProgress("Mengunduh data toko dari Google Sheet...", 25);
   await new Promise(r => setTimeout(r, 40));
   
   const response = await fetch(url);
