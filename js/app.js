@@ -637,7 +637,7 @@ async function triggerMasterSyncWithOverlay() {
   state.isSyncing = true;
 
   showBlockingLoader(
-    "Menyinkronkan 34.000+ Toko",
+    "Menyinkronkan Data Toko",
     "Mengunduh data toko & koordinat GPS dari Google Sheet...",
     true
   );
