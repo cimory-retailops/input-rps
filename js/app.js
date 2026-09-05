@@ -33,12 +33,14 @@ const elements = {};
 
 document.addEventListener("DOMContentLoaded", async () => {
   cacheDOMElements();
+  if (window.lucide) lucide.createIcons();
   initTheme();
   setupRuteDatePicker();
   loadSavedProfile();
   initMap();
   bindEvents();
-  
+  initPwaInstall();
+
   await checkDatabaseStatus();
 });
 
@@ -49,20 +51,20 @@ function cacheDOMElements() {
   elements.userName = document.getElementById("userName");
   elements.userModule = document.getElementById("userModule");
   elements.userAvatar = document.getElementById("userAvatar");
-  
+
   elements.ruteDatePicker = document.getElementById("ruteDatePicker");
   elements.routeDateDisplay = document.getElementById("routeDateDisplay");
   elements.searchInput = document.getElementById("searchInput");
   elements.searchClear = document.getElementById("searchClear");
   elements.searchResultsFloating = document.getElementById("searchResultsFloating");
   elements.filterPills = document.querySelectorAll(".filter-pill");
-  
+
   elements.floatingBar = document.getElementById("floatingBar");
   elements.summaryCount = document.getElementById("summaryCount");
   elements.summaryRoute = document.getElementById("summaryRoute");
   elements.btnViewDrawer = document.getElementById("btnViewDrawer");
   elements.btnSubmitRoute = document.getElementById("btnSubmitRoute");
-  
+
   // Modals & Loaders
   elements.blockingLoader = document.getElementById("blockingLoader");
   elements.loaderTitle = document.getElementById("loaderTitle");
@@ -162,11 +164,36 @@ function addUserLocationMarker(lat, lon) {
   userLocationMarker.bindTooltip("Posisi Anda", { permanent: false, direction: "top" });
 }
 
+// Helper Composite Key Toko & Cek Seleksi (Mencegah bentrok kode sama beda ritel)
+function getStoreKey(storeOrCode, maybeAccount = "") {
+  if (!storeOrCode) return "";
+  if (typeof storeOrCode === "object") {
+    const code = (storeOrCode.kodeToko || "").toString().trim().toUpperCase();
+    const acc = (storeOrCode.account || "").toString().trim().toUpperCase();
+    return acc ? `${code}_${acc}` : code;
+  }
+  const code = storeOrCode.toString().trim().toUpperCase();
+  const acc = (maybeAccount || "").toString().trim().toUpperCase();
+  return acc ? `${code}_${acc}` : code;
+}
+
+function isStoreSelected(kodeToko, account = "") {
+  const key = getStoreKey(kodeToko, account);
+  if (state.selectedStores.has(key)) return true;
+  if (!account && state.selectedStores.has(kodeToko)) return true;
+  for (const [k, v] of state.selectedStores.entries()) {
+    if (v.kodeToko === kodeToko && (!account || (v.account || "").toUpperCase() === account.toUpperCase())) {
+      return true;
+    }
+  }
+  return false;
+}
+
 /**
- * Render Marker Toko Umum di Cluster Peta
+ * Render marker toko di peta menggunakan Leaflet MarkerCluster
  */
 function renderMapMarkers(stores, autoFit = false) {
-  if (!markerClusterGroup) return;
+  if (!map || !markerClusterGroup) return;
   markerClusterGroup.clearLayers();
 
   const validStores = stores.filter(s => s.lat && s.lon && !isNaN(s.lat) && !isNaN(s.lon));
@@ -176,7 +203,7 @@ function renderMapMarkers(stores, autoFit = false) {
 
   validStores.forEach(store => {
     // Jika toko sudah terpilih, pin bernomor urutnya dirender di selectedRouteMarkersLayer
-    if (state.selectedStores.has(store.kodeToko)) return;
+    if (isStoreSelected(store.kodeToko, store.account)) return;
 
     const brandClass = getBrandClass(store.account);
     const initial = (store.account || "T").charAt(0).toUpperCase();
@@ -192,7 +219,7 @@ function renderMapMarkers(stores, autoFit = false) {
     const marker = L.marker([store.lat, store.lon], { icon: customIcon });
 
     // Popup Detail Toko — gunakan getStoreVisitStatus untuk info lengkap
-    const visitStatus = getStoreVisitStatus(store.kodeToko);
+    const visitStatus = getStoreVisitStatus(store.kodeToko, store.account);
     const { isLockedByOther, lockedBy, isRevisitTooSoon, isRevisitAllowed, lastSelfVisit, daysSinceLastVisit } = visitStatus;
 
     let popupContent;
@@ -225,15 +252,15 @@ function renderMapMarkers(stores, autoFit = false) {
           </div>
           <div class="popup-title">${escapeHtml(store.namaToko)}</div>
           <div class="popup-meta" style="color: var(--warning); font-weight: 600;">
-            Dikunjungi terakhir: Rute ${escapeHtml(lastSelfVisit.rute)} (${daysSinceLastVisit} hari lalu)<br>
+            Kunjungan terakhir: Rute ${escapeHtml(lastSelfVisit.rute)} (${daysSinceLastVisit} hari lalu)<br>
             Re-visit minimal 14 hari. Tetap bisa dipilih dengan konfirmasi.
           </div>
-          <div style="display: flex; gap: 4px; margin-top: 2px;">
-            <button type="button" class="btn-popup-toggle" style="flex:1; background: var(--warning-light); color: var(--warning); border-color: var(--warning);" onclick="toggleStoreSelection('${escapeHtml(store.kodeToko)}')">
-              <i data-lucide="alert-triangle"></i>
-              <span>Re-visit (Konfirmasi)</span>
+          <div style="display: flex; gap: 4px; margin-top: 4px;">
+            <button type="button" class="btn-popup-toggle" style="flex:1; background: #f59e0b; color: #ffffff; font-weight: 700; border-color: #f59e0b; box-shadow: 0 2px 6px rgba(245, 158, 11, 0.4);" onclick="toggleStoreSelection('${escapeHtml(store.kodeToko)}', '${escapeHtml(store.account || '')}')">
+              <i data-lucide="plus-circle"></i>
+              <span>+ Pilih Re-Visit Toko</span>
             </button>
-            <button type="button" class="btn-popup-toggle" style="width: 34px; background: var(--bg-main); color: var(--text-main); border: 1px solid var(--border);" onclick="editStoreByCode('${escapeHtml(store.kodeToko)}')">
+            <button type="button" class="btn-popup-toggle" style="width: 34px; background: var(--bg-main); color: var(--text-main); border: 1px solid var(--border);" onclick="editStoreByCode('${escapeHtml(store.kodeToko)}', '${escapeHtml(store.account || '')}')">
               <i data-lucide="edit-3"></i>
             </button>
           </div>
@@ -252,15 +279,16 @@ function renderMapMarkers(stores, autoFit = false) {
           <div class="popup-title">${escapeHtml(store.namaToko)}</div>
           <div class="popup-meta">
             <i data-lucide="map-pin" style="width: 11px; height: 11px; display: inline;"></i>
-            ${escapeHtml(store.kecamatan || store.kota || 'Area Toko')}
+            ${escapeHtml(store.kecamatan || store.kota || 'Area Toko')}${store.provinsi ? ' • ' + escapeHtml(store.provinsi) : ''}
+            ${store.crew ? `<div style="font-size:10px; color: var(--text-muted); margin-top:2px;"><i data-lucide="user" style="width: 11px; height: 11px; display: inline;"></i> Crew: ${escapeHtml(store.crew)}</div>` : ''}
           </div>
           ${revisitInfoHtml}
           <div style="display: flex; gap: 4px; margin-top: 2px;">
-            <button type="button" class="btn-popup-toggle" style="flex: 1;" onclick="toggleStoreSelection('${escapeHtml(store.kodeToko)}')">
+            <button type="button" class="btn-popup-toggle" style="flex: 1;" onclick="toggleStoreSelection('${escapeHtml(store.kodeToko)}', '${escapeHtml(store.account || '')}')">
               <i data-lucide="plus"></i>
               <span>Tambah Rute</span>
             </button>
-            <button type="button" class="btn-popup-toggle" style="width: 34px; background: var(--bg-main); color: var(--text-main); border: 1px solid var(--border);" onclick="editStoreByCode('${escapeHtml(store.kodeToko)}')">
+            <button type="button" class="btn-popup-toggle" style="width: 34px; background: var(--bg-main); color: var(--text-main); border: 1px solid var(--border);" onclick="editStoreByCode('${escapeHtml(store.kodeToko)}', '${escapeHtml(store.account || '')}')">
               <i data-lucide="edit-3"></i>
             </button>
           </div>
@@ -320,7 +348,7 @@ function renderSelectedRouteMarkersAndPolyline(stores) {
       popupAnchor: [0, -20]
     });
 
-    const marker = L.marker([store.lat, store.lon], { 
+    const marker = L.marker([store.lat, store.lon], {
       icon: numberedIcon,
       zIndexOffset: 1000 + orderNumber
     });
@@ -331,12 +359,12 @@ function renderSelectedRouteMarkersAndPolyline(stores) {
     const toggleActionHtml = isScheduleMode
       ? `
         <button type="button" class="btn-popup-toggle remove" style="flex: 1;" onclick="confirmDeleteStoreFromSchedule('${escapeHtml(store.kodeToko)}', '${escapeHtml(store.namaToko)}')">
-          <i data-lucide="trash-2"></i>
-          <span>Hapus dari Google Sheet</span>
+          <i data-lucide="minus-circle"></i>
+          <span>Hapus dari Jadwal Rute</span>
         </button>
       `
       : `
-        <button type="button" class="btn-popup-toggle remove" style="flex: 1;" onclick="toggleStoreSelection('${escapeHtml(store.kodeToko)}')">
+        <button type="button" class="btn-popup-toggle remove" style="flex: 1;" onclick="toggleStoreSelection('${escapeHtml(store.kodeToko)}', '${escapeHtml(store.account || '')}')">
           <i data-lucide="minus-circle"></i>
           <span>Keluarkan dari Rute</span>
         </button>
@@ -354,7 +382,7 @@ function renderSelectedRouteMarkersAndPolyline(stores) {
         </div>
         <div style="display: flex; gap: 4px; margin-top: 2px;">
           ${toggleActionHtml}
-          <button type="button" class="btn-popup-toggle" style="width: 34px; background: var(--bg-main); color: var(--text-main); border: 1px solid var(--border);" onclick="editStoreByCode('${escapeHtml(store.kodeToko)}')" title="Edit Data Toko">
+          <button type="button" class="btn-popup-toggle" style="width: 34px; background: var(--bg-main); color: var(--text-main); border: 1px solid var(--border);" onclick="editStoreByCode('${escapeHtml(store.kodeToko)}', '${escapeHtml(store.account || '')}')" title="Edit Data Toko">
             <i data-lucide="edit-3"></i>
           </button>
         </div>
@@ -431,13 +459,15 @@ function hideBlockingLoader() {
 function initTheme() {
   const savedTheme = localStorage.getItem("mds_theme") || "light";
   document.documentElement.setAttribute("data-theme", savedTheme);
-  const themeToggle = document.getElementById("btnThemeToggle");
-  if (themeToggle) {
-    themeToggle.innerHTML = savedTheme === "dark" 
-      ? '<i data-lucide="sun" style="width: 16px; height: 16px;"></i>' 
-      : '<i data-lucide="moon" style="width: 16px; height: 16px;"></i>';
-    if (window.lucide) lucide.createIcons();
+  const themeIcon = document.getElementById("themeIcon");
+  const themeLabel = document.getElementById("themeLabelText");
+  if (themeIcon) {
+    themeIcon.setAttribute("data-lucide", savedTheme === "dark" ? "sun" : "moon");
   }
+  if (themeLabel) {
+    themeLabel.textContent = savedTheme === "dark" ? "Mode Terang (Light)" : "Mode Gelap (Dark)";
+  }
+  if (window.lucide) lucide.createIcons();
 }
 
 function toggleTheme() {
@@ -486,7 +516,7 @@ function setupRuteDatePicker() {
       if (typeof dateInput.showPicker === "function") {
         dateInput.showPicker();
       }
-    } catch (err) {}
+    } catch (err) { }
   });
 
   dateInput.addEventListener("change", async (e) => {
@@ -512,25 +542,14 @@ function setupRuteDatePicker() {
 }
 
 /**
- * Format tampilan label tanggal rute (Contoh: "Rute 2 (Hari Ini)" atau "Rute 15 (15 Sep)")
+ * Format tampilan label tanggal rute (Contoh: "Rute 4")
  */
 function updateRouteDateDisplay(dateObj) {
   const display = document.getElementById("routeDateDisplay");
   if (!display) return;
 
   const dayNum = dateObj.getDate();
-  const today = new Date().getDate();
-  const todayMonth = new Date().getMonth();
-  const isToday = dayNum === today && dateObj.getMonth() === todayMonth;
-
-  const monthsIndo = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agt", "Sep", "Okt", "Nov", "Des"];
-  const monthName = monthsIndo[dateObj.getMonth()];
-
-  if (isToday) {
-    display.textContent = `Rute ${dayNum} (Hari Ini)`;
-  } else {
-    display.textContent = `Rute ${dayNum} (${dayNum} ${monthName})`;
-  }
+  display.textContent = `Rute ${dayNum}`;
 }
 
 /**
@@ -560,7 +579,7 @@ function loadSavedProfile() {
 function renderProfileUI() {
   if (elements.userName) elements.userName.textContent = state.profile.nama || "Pilih Profil Crew";
   if (elements.userModule) elements.userModule.textContent = state.profile.modul || "LP4";
-  
+
   if (elements.userAvatar) {
     const initials = (state.profile.nama || "MDS")
       .split(" ")
@@ -737,13 +756,57 @@ function bindEvents() {
   // GPS Locate Button
   document.getElementById("btnGpsLocate")?.addEventListener("click", handleGpsLocate);
 
-  // Top Buttons
+  // Unified Action Menu FAB & Items
+  const btnToggleMenu = document.getElementById("btnToggleMenuFab");
+  const menuDropdown = document.getElementById("menuFabDropdown");
+  const menuWrapper = document.getElementById("menuFabWrapper");
+
+  if (btnToggleMenu && menuDropdown) {
+    btnToggleMenu.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const isActive = menuDropdown.classList.toggle("active");
+      btnToggleMenu.classList.toggle("active", isActive);
+      const iconClosed = btnToggleMenu.querySelector(".icon-fab-closed");
+      const iconOpen = btnToggleMenu.querySelector(".icon-fab-open");
+      if (iconClosed) iconClosed.style.display = isActive ? "none" : "block";
+      if (iconOpen) iconOpen.style.display = isActive ? "block" : "none";
+    });
+
+    menuDropdown.querySelectorAll(".menu-fab-item").forEach(item => {
+      item.addEventListener("click", () => {
+        menuDropdown.classList.remove("active");
+        btnToggleMenu.classList.remove("active");
+        const iconClosed = btnToggleMenu.querySelector(".icon-fab-closed");
+        const iconOpen = btnToggleMenu.querySelector(".icon-fab-open");
+        if (iconClosed) iconClosed.style.display = "block";
+        if (iconOpen) iconOpen.style.display = "none";
+      });
+    });
+
+    document.addEventListener("click", (e) => {
+      if (menuWrapper && !menuWrapper.contains(e.target)) {
+        menuDropdown.classList.remove("active");
+        btnToggleMenu.classList.remove("active");
+        const iconClosed = btnToggleMenu.querySelector(".icon-fab-closed");
+        const iconOpen = btnToggleMenu.querySelector(".icon-fab-open");
+        if (iconClosed) iconClosed.style.display = "block";
+        if (iconOpen) iconOpen.style.display = "none";
+      }
+    });
+  }
+
+  // Action Menu Handlers & Floating FABs
   document.getElementById("btnOpenMonitoring")?.addEventListener("click", openMonitoringModal);
+  document.getElementById("btnEditMyProfile")?.addEventListener("click", openProfileModal);
+  document.getElementById("btnSelectMdsDropdown")?.addEventListener("click", openCrewSelectModal);
   document.getElementById("btnEditProfile")?.addEventListener("click", openProfileModal);
   document.getElementById("btnOpenSettings")?.addEventListener("click", openSettingsModal);
+  document.getElementById("btnFabSync")?.addEventListener("click", openSettingsModal);
   document.getElementById("btnOpenHistory")?.addEventListener("click", openHistoryModal);
   document.getElementById("btnThemeToggle")?.addEventListener("click", toggleTheme);
-  
+  document.getElementById("btnOpenHelpTour")?.addEventListener("click", openHelpModal);
+  document.getElementById("btnFabGuide")?.addEventListener("click", openHelpModal);
+
   // Custom Store Modal Button
   document.getElementById("btnOpenCustomStore")?.addEventListener("click", openCustomStoreModal);
   document.getElementById("btnUseCurrentGps")?.addEventListener("click", handleAutofillGps);
@@ -752,9 +815,15 @@ function bindEvents() {
   elements.btnViewDrawer?.addEventListener("click", openDrawerModal);
   elements.btnSubmitRoute?.addEventListener("click", handleDirectSubmit);
 
-  // Schedule Buttons
-  document.getElementById("btnRefreshSchedule")?.addEventListener("click", loadScheduledStores);
+  // Schedule Buttons & Crew Inspector
+  document.getElementById("btnRefreshSchedule")?.addEventListener("click", () => loadScheduledStores());
   document.getElementById("btnCopyScheduleWA")?.addEventListener("click", copyScheduleViewWA);
+  document.getElementById("btnPickScheduleCrew")?.addEventListener("click", openScheduleCrewModal);
+  document.getElementById("btnResetScheduleCrew")?.addEventListener("click", resetScheduleToMyProfile);
+  document.getElementById("scheduleCrewSearchInput")?.addEventListener("input", (e) => {
+    const val = e.target.value;
+    renderScheduleCrewSearchResults(allMasterCrewsCache, val);
+  });
   document.getElementById("btnToggleScheduleList")?.addEventListener("click", () => {
     const list = document.getElementById("scheduleStoreList");
     if (!list) return;
@@ -855,9 +924,9 @@ function handleGpsLocate() {
 /**
  * Switch View (Peta & Pilih Toko vs Jadwal Terinput)
  */
-window.switchAppView = function(viewName) {
+window.switchAppView = function (viewName) {
   state.currentView = viewName;
-  
+
   const tabInput = document.getElementById("tabBtnInput");
   const tabSched = document.getElementById("tabBtnSchedule");
   const cardInput = document.getElementById("floatingSearchCard");
@@ -940,11 +1009,11 @@ function renderFloatingSearchResults(stores, showContainer = true) {
   let html = "";
 
   stores.slice(0, 15).forEach(store => {
-    const isSelected = state.selectedStores.has(store.kodeToko);
+    const isSelected = isStoreSelected(store.kodeToko, store.account);
     const brandClass = getBrandClass(store.account);
 
-    // Pakai getStoreVisitStatus untuk validasi lengkap
-    const visitStatus = getStoreVisitStatus(store.kodeToko);
+    // Pakai getStoreVisitStatus untuk validasi lengkap dengan account
+    const visitStatus = getStoreVisitStatus(store.kodeToko, store.account);
     const { isLockedByOther, lockedBy, isRevisitTooSoon, isRevisitAllowed, lastSelfVisit, daysSinceLastVisit } = visitStatus;
 
     // Badge status
@@ -975,14 +1044,22 @@ function renderFloatingSearchResults(stores, showContainer = true) {
       `;
       statusBadgeHtml += `
         <div style="font-size: 10px; color: var(--warning); font-weight: 700; margin-top: 2px;">
-          Kunjungan terakhir: Rute ${escapeHtml(lastSelfVisit.rute)} (${daysSinceLastVisit} hari lalu, min. 14 hari)
+          Kunjungan: Rute ${escapeHtml(lastSelfVisit.rute)} (${daysSinceLastVisit} hari lalu). Klik (+) untuk pilih.
         </div>
       `;
-      actionButtonHtml = `
-        <button type="button" class="btn-icon-mini" onclick="event.stopPropagation(); toggleStoreSelection('${escapeHtml(store.kodeToko)}')" title="Re-visit (konfirmasi diperlukan)" style="background: var(--warning-light); color: var(--warning);">
-          <i data-lucide="alert-triangle" style="width: 14px; height: 14px;"></i>
-        </button>
-      `;
+      if (isSelected) {
+        actionButtonHtml = `
+          <button type="button" class="btn-icon-mini" onclick="event.stopPropagation(); toggleStoreSelection('${escapeHtml(store.kodeToko)}', '${escapeHtml(store.account || '')}')" title="Hapus dari rute" style="background: rgba(16, 185, 129, 0.18); color: #059669; border: 1.5px solid #10b981;">
+            <i data-lucide="check" style="width: 14px; height: 14px; stroke-width: 2.5;"></i>
+          </button>
+        `;
+      } else {
+        actionButtonHtml = `
+          <button type="button" class="btn-icon-mini" onclick="event.stopPropagation(); toggleStoreSelection('${escapeHtml(store.kodeToko)}', '${escapeHtml(store.account || '')}')" title="Pilih Re-visit (Bisa ditambahkan ke rute)" style="background: rgba(245, 158, 11, 0.18); color: #d97706; border: 1.5px solid #f59e0b;">
+            <i data-lucide="plus" style="width: 14px; height: 14px; stroke-width: 2.5;"></i>
+          </button>
+        `;
+      }
     } else if (isRevisitAllowed) {
       statusBadgeHtml = `
         <div style="font-size: 10px; color: var(--text-muted); margin-top: 2px;">
@@ -990,13 +1067,13 @@ function renderFloatingSearchResults(stores, showContainer = true) {
         </div>
       `;
       actionButtonHtml = `
-        <button type="button" class="btn-icon-mini" onclick="event.stopPropagation(); toggleStoreSelection('${escapeHtml(store.kodeToko)}')" title="${isSelected ? 'Hapus dari rute' : 'Tambah ke rute'}">
+        <button type="button" class="btn-icon-mini" onclick="event.stopPropagation(); toggleStoreSelection('${escapeHtml(store.kodeToko)}', '${escapeHtml(store.account || '')}')" title="${isSelected ? 'Hapus dari rute' : 'Tambah ke rute'}">
           <i data-lucide="${isSelected ? 'check' : 'plus'}" style="width: 14px; height: 14px; color: var(--${isSelected ? 'success' : 'primary'});"></i>
         </button>
       `;
     } else {
       actionButtonHtml = `
-        <button type="button" class="btn-icon-mini" onclick="event.stopPropagation(); toggleStoreSelection('${escapeHtml(store.kodeToko)}')" title="${isSelected ? 'Hapus dari rute' : 'Tambah ke rute'}">
+        <button type="button" class="btn-icon-mini" onclick="event.stopPropagation(); toggleStoreSelection('${escapeHtml(store.kodeToko)}', '${escapeHtml(store.account || '')}')" title="${isSelected ? 'Hapus dari rute' : 'Tambah ke rute'}">
           <i data-lucide="${isSelected ? 'check' : 'plus'}" style="width: 14px; height: 14px; color: var(--${isSelected ? 'success' : 'primary'});"></i>
         </button>
       `;
@@ -1006,7 +1083,7 @@ function renderFloatingSearchResults(stores, showContainer = true) {
     const noGpsBadgeHtml = !hasGps ? `<span style="font-size:9px; background: rgba(148, 163, 184, 0.2); color: var(--text-muted); padding: 1px 5px; border-radius: 99px; font-weight: 600;">📍 No GPS</span>` : '';
 
     html += `
-      <div class="store-card-compact ${isSelected ? 'selected' : ''} ${extraCardClass}" onclick="flyToStoreOnMap('${escapeHtml(store.kodeToko)}')">
+      <div class="store-card-compact ${isSelected ? 'selected' : ''} ${extraCardClass}" onclick="flyToStoreOnMap('${escapeHtml(store.kodeToko)}', '${escapeHtml(store.account || '')}', '${escapeHtml(store.namaToko || '')}')">
         <div style="flex: 1; min-width: 0;">
           <div class="store-badges">
             <span class="badge-code">${escapeHtml(store.kodeToko)}</span>
@@ -1018,12 +1095,12 @@ function renderFloatingSearchResults(stores, showContainer = true) {
             ${escapeHtml(store.namaToko)}
           </div>
           <div style="font-size: 10px; color: var(--text-muted); margin-top: 1px;">
-            ${escapeHtml(store.kecamatan || store.kota || 'Area Toko')}
+            ${escapeHtml(store.kecamatan || store.kota || 'Area Toko')}${store.provinsi ? ' • ' + escapeHtml(store.provinsi) : ''}${store.crew ? ' • 👤 ' + escapeHtml(store.crew) : ''}
           </div>
           ${statusBadgeHtml.split('\n').slice(1).join('\n')}
         </div>
         <div style="display: flex; align-items: center; gap: 3px;">
-          <button type="button" class="btn-icon-mini" onclick="event.stopPropagation(); editStoreByCode('${escapeHtml(store.kodeToko)}')" title="Edit Data Toko">
+          <button type="button" class="btn-icon-mini" onclick="event.stopPropagation(); editStoreByCode('${escapeHtml(store.kodeToko)}', '${escapeHtml(store.account || '')}')" title="Edit Data Toko">
             <i data-lucide="edit-3" style="width: 13px; height: 13px;"></i>
           </button>
           ${actionButtonHtml}
@@ -1039,35 +1116,39 @@ function renderFloatingSearchResults(stores, showContainer = true) {
 /**
  * Edit Data Toko by Kode Toko (Buka Modal dengan Data Terisi)
  */
-window.editStoreByCode = async function(kodeToko) {
+window.editStoreByCode = async function (kodeToko, account = "") {
   if (!kodeToko) return;
-  
-  let store = state.searchResults.find(s => s.kodeToko === kodeToko)
-    || state.scheduleStores.find(s => s.kodeToko === kodeToko)
-    || state.selectedStores.get(kodeToko);
+  const storeKey = getStoreKey(kodeToko, account);
+
+  let store = state.searchResults.find(s => s.kodeToko === kodeToko && (!account || (s.account || '').toUpperCase() === account.toUpperCase()))
+    || state.scheduleStores.find(s => s.kodeToko === kodeToko && (!account || (s.account || '').toUpperCase() === account.toUpperCase()))
+    || state.selectedStores.get(storeKey)
+    || state.searchResults.find(s => s.kodeToko === kodeToko)
+    || state.scheduleStores.find(s => s.kodeToko === kodeToko);
 
   if (!store) {
-    store = await getStoreByCode(kodeToko);
+    store = await getStoreByCode(kodeToko, account);
   }
 
   if (store) {
     openCustomStoreModal(store);
   } else {
-    openCustomStoreModal({ kodeToko });
+    openCustomStoreModal({ kodeToko, account });
   }
 };
 
 /**
  * Fly-to Store di Peta saat diklik dari list
  */
-window.flyToStoreOnMap = async function(kodeToko, account = "", namaToko = "") {
+window.flyToStoreOnMap = async function (kodeToko, account = "", namaToko = "") {
+  const storeKey = getStoreKey(kodeToko, account);
   let store = state.searchResults.find(s => s.kodeToko === kodeToko && (!account || (s.account || '').toUpperCase() === account.toUpperCase()))
     || state.scheduleStores.find(s => s.kodeToko === kodeToko && (!account || (s.account || '').toUpperCase() === account.toUpperCase()))
+    || state.selectedStores.get(storeKey)
     || state.searchResults.find(s => s.kodeToko === kodeToko)
-    || state.scheduleStores.find(s => s.kodeToko === kodeToko)
-    || state.selectedStores.get(kodeToko);
+    || state.scheduleStores.find(s => s.kodeToko === kodeToko);
 
-  // Jika di memori sementara belum ada koordinat, coba ambil langsung dari IndexedDB (dengan fallback nama toko)
+  // Jika di memori sementara belum ada koordinat, coba ambil langsung dari IndexedDB (dengan strict account)
   if (!store || !store.lat || !store.lon) {
     const fromDb = await getStoreByCode(kodeToko, account, namaToko || (store ? store.namaToko : ""));
     if (fromDb && fromDb.lat && fromDb.lon) {
@@ -1098,12 +1179,18 @@ window.flyToStoreOnMap = async function(kodeToko, account = "", namaToko = "") {
 /**
  * Toggle Tambah/Hapus Toko dari Rute
  */
-window.toggleStoreSelection = function(kodeToko) {
-  let targetStore = null;
+window.toggleStoreSelection = function (kodeToko, account = "") {
+  let targetStore = state.searchResults.find(s => s.kodeToko === kodeToko && (!account || (s.account || '').toUpperCase() === account.toUpperCase()))
+    || state.scheduleStores.find(s => s.kodeToko === kodeToko && (!account || (s.account || '').toUpperCase() === account.toUpperCase()))
+    || state.searchResults.find(s => s.kodeToko === kodeToko)
+    || state.scheduleStores.find(s => s.kodeToko === kodeToko);
 
-  if (state.selectedStores.has(kodeToko)) {
+  const acc = account || (targetStore ? targetStore.account : "");
+  const storeKey = getStoreKey(targetStore || { kodeToko, account: acc });
+
+  if (state.selectedStores.has(storeKey)) {
     // Hapus dari rute
-    state.selectedStores.delete(kodeToko);
+    state.selectedStores.delete(storeKey);
     saveCurrentRouteDraft();
 
     const selectedArray = Array.from(state.selectedStores.values());
@@ -1116,7 +1203,7 @@ window.toggleStoreSelection = function(kodeToko) {
   }
 
   // --- Validasi sebelum menambahkan ---
-  const visitStatus = getStoreVisitStatus(kodeToko);
+  const visitStatus = getStoreVisitStatus(kodeToko, acc);
 
   if (visitStatus.isLockedByOther) {
     // HARD BLOCK: dikover MDS lain
@@ -1159,15 +1246,12 @@ window.toggleStoreSelection = function(kodeToko) {
   }
 
   // Tambahkan ke rute
-  targetStore = state.searchResults.find(s => s.kodeToko === kodeToko)
-    || state.scheduleStores.find(s => s.kodeToko === kodeToko)
-    || { kodeToko };
-
+  targetStore = targetStore || { kodeToko, account: acc };
   targetStore.isRevisit = isRevisit;
   targetStore.statusKunjungan = statusKunjungan;
   targetStore.alasanRevisit = revisitReason;
 
-  state.selectedStores.set(kodeToko, targetStore);
+  state.selectedStores.set(storeKey, targetStore);
   saveCurrentRouteDraft();
 
   const selectedArray = Array.from(state.selectedStores.values());
@@ -1193,9 +1277,9 @@ window.toggleStoreSelection = function(kodeToko) {
  * Returns:
  *   { isLockedByOther, lockedBy, isRevisitTooSoon, isRevisitAllowed, lastSelfVisit, daysSinceLastVisit }
  */
-function getStoreVisitStatus(kodeToko) {
+function getStoreVisitStatus(kodeToko, account = "") {
   const REVISIT_MIN_DAYS = 14;
-  const visits = state.claimedStores[kodeToko]; // array or undefined
+  let visits = state.claimedStores[kodeToko]; // array or undefined
   const myCrewCode = (state.profile.kodeCrew || "").trim();
   const currentRute = parseInt(state.currentRute) || new Date().getDate();
 
@@ -1210,6 +1294,13 @@ function getStoreVisitStatus(kodeToko) {
 
   if (!visits || !Array.isArray(visits) || visits.length === 0) return result;
 
+  // Filter jika account diberikan agar Alfa dan Indomaret dengan kode sama tidak saling mengunci
+  const cleanAcc = (account || "").toString().trim().toUpperCase();
+  if (cleanAcc) {
+    visits = visits.filter(v => (v.account || "").toString().trim().toUpperCase() === cleanAcc);
+    if (visits.length === 0) return result;
+  }
+
   // Pisahkan kunjungan MDS lain dan kunjungan sendiri
   const otherVisits = visits.filter(v => v.kodeCrew && v.kodeCrew !== myCrewCode);
   const selfVisits = visits.filter(v => v.kodeCrew === myCrewCode);
@@ -1217,7 +1308,7 @@ function getStoreVisitStatus(kodeToko) {
   // Cek apakah ada MDS lain yang sudah mengkover toko ini
   if (otherVisits.length > 0) {
     // Ambil kunjungan MDS lain yang paling baru (rute terbesar = paling akhir di bulan ini)
-    const latestOther = otherVisits.reduce((a, b) => 
+    const latestOther = otherVisits.reduce((a, b) =>
       (parseInt(b.rute) || 0) > (parseInt(a.rute) || 0) ? b : a
     );
     result.isLockedByOther = true;
@@ -1291,7 +1382,8 @@ function restoreRouteDraft(rute) {
     if (parsed && Array.isArray(parsed.stores) && parsed.stores.length > 0) {
       state.selectedStores.clear();
       parsed.stores.forEach(st => {
-        state.selectedStores.set(st.kodeToko, st);
+        const sKey = getStoreKey(st);
+        state.selectedStores.set(sKey, st);
       });
 
       const selectedArray = Array.from(state.selectedStores.values());
@@ -1357,7 +1449,7 @@ function openDrawerModal() {
   } else {
     let html = "";
     let idx = 1;
-    state.selectedStores.forEach((store, kode) => {
+    state.selectedStores.forEach((store, storeKey) => {
       html += `
         <div style="background: var(--bg-main); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 8px 10px; display: flex; align-items: center; justify-content: space-between; gap: 8px;">
           <div style="flex: 1; min-width: 0;">
@@ -1368,7 +1460,7 @@ function openDrawerModal() {
               ${escapeHtml(store.namaToko || store.kodeToko)}
             </div>
           </div>
-          <button type="button" class="btn-icon-mini" onclick="removeStoreFromDrawer('${escapeHtml(store.kodeToko)}')" title="Hapus" style="color: var(--danger);">
+          <button type="button" class="btn-icon-mini" onclick="removeStoreFromDrawer('${escapeHtml(storeKey)}')" title="Hapus" style="color: var(--danger);">
             <i data-lucide="trash-2" style="width: 14px; height: 14px;"></i>
           </button>
         </div>
@@ -1381,8 +1473,8 @@ function openDrawerModal() {
   modal.classList.add("active");
 }
 
-window.removeStoreFromDrawer = function(kodeToko) {
-  state.selectedStores.delete(kodeToko);
+window.removeStoreFromDrawer = function (storeKey) {
+  state.selectedStores.delete(storeKey);
   saveCurrentRouteDraft();
   const selectedArray = Array.from(state.selectedStores.values());
   renderMapMarkers(state.searchResults, false);
@@ -1392,9 +1484,18 @@ window.removeStoreFromDrawer = function(kodeToko) {
   openDrawerModal();
 };
 
-function clearSelectedStores() {
+async function clearSelectedStores() {
   if (state.selectedStores.size === 0) return;
-  if (confirm("Kosongkan semua toko yang dipilih?")) {
+  const ok = await showCustomConfirm({
+    title: "Kosongkan Keranjang Rute?",
+    message: `Seluruh ${state.selectedStores.size} toko yang telah Anda pilih untuk Rute ${state.currentRute} akan dibatalkan dari daftar hari ini.`,
+    type: "danger",
+    icon: "trash-2",
+    okText: "Ya, Kosongkan",
+    cancelText: "Batal"
+  });
+
+  if (ok) {
     state.selectedStores.clear();
     saveCurrentRouteDraft();
     elements.drawerModal.classList.remove("active");
@@ -1402,6 +1503,7 @@ function clearSelectedStores() {
     renderSelectedRouteMarkersAndPolyline([]);
     renderFloatingSearchResults(state.searchResults, false);
     updateFloatingBar();
+    showToast("Keranjang rute berhasil dikosongkan", "info");
   }
 }
 
@@ -1423,6 +1525,16 @@ async function handleDirectSubmit() {
     false
   );
 
+  // Proteksi Simulasi Tutorial (Tidak kirim ke server asli)
+  if (state.isTourMode) {
+    setTimeout(() => {
+      hideBlockingLoader();
+      showToast("[Simulasi Tutorial] Jadwal berhasil diproses! (Data dummy tidak dikirim ke Google Sheet)", "success");
+      nextTourStep();
+    }, 700);
+    return;
+  }
+
   try {
     const result = await submitRouteAttendance({
       module: state.profile.modul,
@@ -1434,7 +1546,7 @@ async function handleDirectSubmit() {
 
     hideBlockingLoader();
     showToast(result.message, "success");
-    
+
     // Kosongkan keranjang & hapus draft rute yang sudah sukses terkirim
     state.selectedStores.clear();
     clearRouteDraft(state.currentRute);
@@ -1454,19 +1566,54 @@ async function handleDirectSubmit() {
 /**
  * Muat Jadwal Toko Terinput & Render ke Peta
  */
-async function loadScheduledStores() {
+async function loadScheduledStores(targetCrew = null) {
   const container = document.getElementById("scheduleStoreList");
   const title = document.getElementById("scheduleViewTitle");
-  const modLabel = document.getElementById("scheduleViewModule");
   const countLabel = document.getElementById("scheduleTotalStores");
+  const crewLabel = document.getElementById("scheduleCrewLabel");
+  const crewNameEl = document.getElementById("scheduleCrewName");
+  const crewAvatarEl = document.getElementById("scheduleCrewAvatar");
+  const btnReset = document.getElementById("btnResetScheduleCrew");
+
+  if (targetCrew !== null) {
+    state.inspectingCrew = targetCrew;
+  }
+
+  // Tentukan apakah sedang melihat jadwal saya atau rekan lain
+  const isInspectingOther = state.inspectingCrew && 
+    (state.inspectingCrew.id || state.inspectingCrew.kodeCrew) !== (state.profile.kodeCrew || 'RO036');
+
+  const activeCrew = isInspectingOther ? state.inspectingCrew : state.profile;
+  const activeCrewName = activeCrew.nama || "MDS";
+  const activeCrewCode = activeCrew.id || activeCrew.kodeCrew || state.profile.kodeCrew;
+  const activeCrewModul = activeCrew.modul || state.profile.modul || "LP4";
 
   if (title) title.textContent = `Jadwal Rute ${state.currentRute}`;
-  if (modLabel) modLabel.textContent = state.profile.modul || "LP4";
+  
+  if (crewNameEl) crewNameEl.textContent = `${activeCrewName} (${activeCrewModul})`;
+  if (crewAvatarEl) {
+    const initials = activeCrewName.split(" ").map(w => w[0]).slice(0, 2).join("").toUpperCase();
+    crewAvatarEl.textContent = initials;
+  }
+
+  if (isInspectingOther) {
+    if (crewLabel) {
+      crewLabel.textContent = "👀 Jadwal Rekan (Read-Only):";
+      crewLabel.style.color = "var(--primary)";
+    }
+    if (btnReset) btnReset.style.display = "inline-flex";
+  } else {
+    if (crewLabel) {
+      crewLabel.textContent = "Melihat Jadwal Saya:";
+      crewLabel.style.color = "var(--text-muted)";
+    }
+    if (btnReset) btnReset.style.display = "none";
+  }
 
   // Tampilkan Fullscreen Blocking Loader saat menarik data jadwal
   showBlockingLoader(
     `Memuat Jadwal Rute ${state.currentRute}`,
-    `Mengambil data kunjungan dari Google Sheet modul ${state.profile.modul}...`,
+    `Mengambil data kunjungan ${activeCrewName} dari Google Sheet modul ${activeCrewModul}...`,
     false
   );
 
@@ -1474,7 +1621,7 @@ async function loadScheduledStores() {
     container.innerHTML = `
       <div style="text-align: center; padding: 20px; color: var(--text-muted); font-size: 12px;">
         <i data-lucide="loader-2" class="spin" style="width: 20px; height: 20px; margin-bottom: 6px;"></i>
-        <div>Memuat jadwal rute dari spreadsheet...</div>
+        <div>Memuat jadwal rute ${escapeHtml(activeCrewName)}...</div>
       </div>
     `;
     if (window.lucide) lucide.createIcons();
@@ -1482,9 +1629,9 @@ async function loadScheduledStores() {
 
   try {
     const stores = await fetchSavedSchedule({
-      module: state.profile.modul,
+      module: activeCrewModul,
       rute: state.currentRute,
-      crewCode: state.profile.kodeCrew
+      crewCode: activeCrewCode
     });
 
     // Cari koordinat GPS (lat & lon) dari database lokal IndexedDB untuk setiap toko yang terinput
@@ -1508,7 +1655,7 @@ async function loadScheduledStores() {
       if (container) {
         container.innerHTML = `
           <div style="text-align: center; padding: 20px; color: var(--text-muted); font-size: 12px;">
-            Belum ada jadwal toko di Rute ${state.currentRute}
+            Belum ada jadwal toko di Rute ${state.currentRute} untuk ${escapeHtml(activeCrewName)}
           </div>
         `;
       }
@@ -1518,6 +1665,12 @@ async function loadScheduledStores() {
       let html = "";
       stores.forEach((st, idx) => {
         const brandClass = getBrandClass(st.account);
+        const actionHtml = isInspectingOther 
+          ? `<span style="font-size: 10px; font-weight: 700; color: var(--text-muted); background: var(--bg-card); border: 1px solid var(--border); padding: 2px 6px; border-radius: var(--radius-sm);">Terkunci</span>`
+          : `<button type="button" class="btn-icon-mini" onclick="event.stopPropagation(); confirmDeleteStoreFromSchedule('${escapeHtml(st.kodeToko)}', '${escapeHtml(st.namaToko)}')" title="Hapus dari Jadwal Rute Ini">
+               <i data-lucide="trash-2" style="color: var(--danger); width: 14px; height: 14px;"></i>
+             </button>`;
+
         html += `
           <div class="store-card-compact" onclick="flyToStoreOnMap('${escapeHtml(st.kodeToko)}', '${escapeHtml(st.account || '')}', '${escapeHtml(st.namaToko || '')}')">
             <div style="flex: 1; min-width: 0;">
@@ -1529,13 +1682,11 @@ async function loadScheduledStores() {
                 ${escapeHtml(st.namaToko)}
               </div>
               <div style="font-size: 10px; color: var(--text-muted);">
-                ${escapeHtml(st.kecamatan || st.kota || '')} &bull; MDS: ${escapeHtml(st.namaCrew || state.profile.nama)}
+                ${escapeHtml(st.kecamatan || st.kota || '')} &bull; MDS: ${escapeHtml(st.namaCrew || activeCrewName)}
               </div>
             </div>
             <div style="display: flex; align-items: center; gap: 4px; flex-shrink: 0;">
-              <button type="button" class="btn-icon-mini" onclick="event.stopPropagation(); confirmDeleteStoreFromSchedule('${escapeHtml(st.kodeToko)}', '${escapeHtml(st.namaToko)}')" title="Hapus dari Google Sheet">
-                <i data-lucide="trash-2" style="color: var(--danger); width: 14px; height: 14px;"></i>
-              </button>
+              ${actionHtml}
             </div>
           </div>
         `;
@@ -1544,7 +1695,7 @@ async function loadScheduledStores() {
 
       // Render pin bernomor urut khusus (1, 2, 3...) dan garis polyline di peta
       renderSelectedRouteMarkersAndPolyline(stores);
-      
+
       const validPoints = stores.filter(s => s.lat && s.lon && !isNaN(s.lat) && !isNaN(s.lon)).map(s => [s.lat, s.lon]);
       if (validPoints.length > 0) {
         const bounds = L.latLngBounds(validPoints);
@@ -1568,16 +1719,113 @@ async function loadScheduledStores() {
 }
 
 /**
+ * Modal Pemilih MDS untuk Mode Lihat Jadwal Read-Only
+ */
+async function openScheduleCrewModal() {
+  const modal = document.getElementById("scheduleCrewModal");
+  if (!modal) return;
+  modal.classList.add("active");
+
+  const searchInput = document.getElementById("scheduleCrewSearchInput");
+  if (searchInput) searchInput.value = "";
+
+  try {
+    const crews = allMasterCrewsCache.length > 0 ? allMasterCrewsCache : await getAllCrew();
+    renderScheduleCrewSearchResults(crews, "");
+  } catch (e) {
+    console.error(e);
+  }
+  if (window.lucide) lucide.createIcons();
+}
+
+function renderScheduleCrewSearchResults(crews, query = "") {
+  const container = document.getElementById("scheduleCrewSearchResultsList");
+  if (!container) return;
+
+  const q = (query || "").trim().toLowerCase();
+  let filtered = crews || [];
+  if (q) {
+    filtered = filtered.filter(c => {
+      const matchNama = (c.nama || "").toLowerCase().includes(q);
+      const matchId = (c.id || "").toLowerCase().includes(q);
+      const matchMod = (c.modul || "").toLowerCase().includes(q);
+      return matchNama || matchId || matchMod;
+    });
+  }
+
+  if (filtered.length === 0) {
+    container.innerHTML = `
+      <div style="padding: 14px; text-align: center; color: var(--text-muted); font-size: 11.5px;">
+        Tidak ada MDS yang cocok dengan "${escapeHtml(query)}"
+      </div>
+    `;
+    return;
+  }
+
+  let html = "";
+  filtered.forEach(c => {
+    const initials = (c.nama || "MDS").split(" ").map(w => w[0]).slice(0, 2).join("").toUpperCase();
+    const isCurrentActive = (c.id || "") === (state.profile.kodeCrew || "") && (c.nama || "") === (state.profile.nama || "");
+    const cleanModul = (c.modul || "LP4").replace(/\s+/g, "").toUpperCase();
+
+    html += `
+      <div class="crew-item-card" onclick="selectScheduleCrewToInspect('${escapeHtml(c.nama)}', '${escapeHtml(c.id || '')}', '${escapeHtml(cleanModul)}', '${escapeHtml(c.account || 'ALFAMART')}')">
+        <div style="display: flex; align-items: center; gap: 8px; min-width: 0;">
+          <div class="crew-item-avatar">${initials}</div>
+          <div style="min-width: 0;">
+            <div style="font-weight: 700; font-size: 12px; color: var(--text-main); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+              ${escapeHtml(c.nama)} ${isCurrentActive ? '<span style="font-size: 9px; background: var(--primary-light); color: var(--primary); padding: 1px 5px; border-radius: 99px;">(Profil Saya)</span>' : ''}
+            </div>
+            <div style="font-size: 10.5px; color: var(--text-muted);">
+              ID: ${escapeHtml(c.id || '-')} &bull; ${escapeHtml(c.account || 'ALFAMART')}
+            </div>
+          </div>
+        </div>
+        <div style="display: flex; align-items: center; gap: 6px; flex-shrink: 0;">
+          <span style="font-size: 10px; font-weight: 800; background: var(--bg-main); border: 1px solid var(--border); padding: 2px 6px; border-radius: var(--radius-sm); color: var(--primary);">
+            ${escapeHtml(cleanModul)}
+          </span>
+          <i data-lucide="eye" style="width: 14px; height: 14px; color: var(--primary);"></i>
+        </div>
+      </div>
+    `;
+  });
+
+  container.innerHTML = html;
+  if (window.lucide) lucide.createIcons();
+}
+
+window.selectScheduleCrewToInspect = function (nama, id, modul, account) {
+  document.getElementById("scheduleCrewModal")?.classList.remove("active");
+  const selected = { nama, id, kodeCrew: id, modul, account };
+  loadScheduledStores(selected);
+  showToast(`Melihat jadwal rute ${nama} (${modul}) [Read-Only]`, "info");
+};
+
+function resetScheduleToMyProfile() {
+  state.inspectingCrew = null;
+  loadScheduledStores(null);
+  showToast("Kembali ke Jadwal Rute Saya", "success");
+}
+
+/**
  * Konfirmasi & Eksekusi Hapus 1 Toko dari Jadwal di Google Spreadsheet
  */
-window.confirmDeleteStoreFromSchedule = async function(kodeToko, namaToko) {
-  const confirmMsg = `🗑️ HAPUS TOKO DARI GOOGLE SHEET\n\nYakin ingin menghapus toko:\n"${namaToko}" (${kodeToko})\ndari Jadwal Rute ${state.currentRute} (${state.profile.modul}) di Google Sheet?`;
-  
-  if (!confirm(confirmMsg)) return;
+window.confirmDeleteStoreFromSchedule = async function (kodeToko, namaToko) {
+  const ok = await showCustomConfirm({
+    title: "Batalkan dari Jadwal Rute?",
+    message: `Toko "${namaToko}" (${kodeToko}) akan dibatalkan dari Jadwal Rute ${state.currentRute} (${state.profile.modul}).\n\nToko ini akan bebas kembali untuk dijadwalkan ulang.`,
+    type: "danger",
+    icon: "trash-2",
+    okText: "Ya, Batalkan",
+    cancelText: "Kembali"
+  });
+
+  if (!ok) return;
 
   showBlockingLoader(
-    "Menghapus Toko",
-    `Menghapus ${namaToko} dari jadwal di Google Spreadsheet...`,
+    "Menghapus dari Jadwal",
+    `Menghapus ${namaToko} dari jadwal Rute ${state.currentRute}...`,
     false
   );
 
@@ -1590,7 +1838,7 @@ window.confirmDeleteStoreFromSchedule = async function(kodeToko, namaToko) {
     });
 
     showToast(`Toko ${namaToko} (${kodeToko}) berhasil dihapus dari jadwal Rute ${state.currentRute}!`, "success");
-    
+
     // Auto-reload jadwal dari Google Sheet
     await loadScheduledStores();
   } catch (err) {
@@ -1672,7 +1920,7 @@ function copyWhatsAppSummary() {
     text += `${idx++}. [${store.account}] ${store.kodeToko} - ${store.namaToko}\n`;
   });
 
-  text += `\n_Tercatat via Web Absen MDS GIS_`;
+  text += `\n_Tercatat via Retail Ops Rute Master_`;
 
   safeCopyToClipboard(text, "Format laporan WA berhasil disalin ke clipboard!");
 }
@@ -1695,7 +1943,7 @@ function copyScheduleViewWA() {
     text += `${idx + 1}. [${st.account}] ${st.kodeToko} - ${st.namaToko}\n`;
   });
 
-  text += `\n_Laporan Jadwal Web Absen MDS GIS_`;
+  text += `\n_Laporan Jadwal Retail Ops Rute Master_`;
 
   safeCopyToClipboard(text, `Jadwal Rute ${state.currentRute} berhasil disalin ke clipboard!`);
 }
@@ -1739,7 +1987,8 @@ function openCustomStoreModal(initialData = null) {
     codeInput.onblur = async () => {
       const val = codeInput.value.trim().toUpperCase();
       if (val && (!nameInput.value || nameInput.value === "")) {
-        const existing = await getStoreByCode(val);
+        const selectedAcc = accountInput ? accountInput.value.trim().toUpperCase() : "";
+        const existing = await getStoreByCode(val, selectedAcc);
         if (existing) {
           if (modalTitle) modalTitle.textContent = `Edit Toko: ${existing.namaToko}`;
           if (accountInput) accountInput.value = existing.account || "ALFAMART";
@@ -1799,6 +2048,14 @@ async function handleCustomStoreSave(e) {
     return;
   }
 
+  // Proteksi Simulasi Tutorial (Tidak simpan ke DB server)
+  if (state.isTourMode) {
+    document.getElementById("customStoreModal")?.classList.remove("active");
+    showToast(`[Simulasi Tutorial] Toko ${namaToko} (${kodeToko}) berhasil disimpan!`, "success");
+    nextTourStep();
+    return;
+  }
+
   try {
     const savedStore = await saveCustomStore({
       kodeToko,
@@ -1813,7 +2070,8 @@ async function handleCustomStoreSave(e) {
     document.getElementById("customStoreModal").classList.remove("active");
 
     if (autoAdd) {
-      state.selectedStores.set(kodeToko, savedStore);
+      const sKey = getStoreKey(savedStore);
+      state.selectedStores.set(sKey, savedStore);
       saveCurrentRouteDraft();
       const selectedArray = Array.from(state.selectedStores.values());
       renderSelectedRouteMarkersAndPolyline(selectedArray);
@@ -1838,25 +2096,44 @@ async function handleCustomStoreSave(e) {
 }
 
 /**
- * Modal Profil Handler - Live Searchable Master Crew
+ * Modal Profil Handler - Edit Profil Pribadi & Live Searchable Master Crew
  */
 let allMasterCrewsCache = [];
 
+/**
+ * 1. Buka Modal Edit Profil Pribadi (Khusus Tombol M)
+ */
 async function openProfileModal() {
-  const modal = elements.profileModal;
+  const modal = document.getElementById("profileModal");
+  if (!modal) return;
+
   const nameInput = document.getElementById("profileNameInput");
   const codeInput = document.getElementById("profileCodeInput");
   const moduleSelect = document.getElementById("profileModuleSelect");
-  const searchInput = document.getElementById("crewSearchInput");
-  const listContainer = document.getElementById("crewSearchResultsList");
 
   if (nameInput) nameInput.value = state.profile.nama || "";
   if (codeInput) codeInput.value = state.profile.kodeCrew || "";
   if (moduleSelect) moduleSelect.value = state.profile.modul || "LP4";
+
+  modal.classList.add("active");
+  if (window.lucide) lucide.createIcons();
+}
+
+/**
+ * 2. Buka Modal Cari & Pilih MDS dari Master Crew (Khusus Dropdown Nama di Top Bar)
+ */
+async function openCrewSelectModal() {
+  const modal = document.getElementById("crewSelectModal");
+  if (!modal) return;
+
+  const searchInput = document.getElementById("crewSearchInput");
+  const listContainer = document.getElementById("crewSearchResultsList");
+
   if (searchInput) searchInput.value = "";
+  modal.classList.add("active");
 
   try {
-    // 1. Tampilkan data dari IndexedDB lokal langsung agar tidak lag
+    // 1. Tampilkan data dari IndexedDB lokal langsung agar instan tanpa lag
     allMasterCrewsCache = await getAllCrew();
     renderCrewSearchResults(allMasterCrewsCache, "");
 
@@ -1884,11 +2161,10 @@ async function openProfileModal() {
     });
   }
 
-  modal.classList.add("active");
   if (window.lucide) lucide.createIcons();
 }
 
-window.manualRefreshCrewList = async function() {
+window.manualRefreshCrewList = async function () {
   const listContainer = document.getElementById("crewSearchResultsList");
   const btn = document.getElementById("btnSyncCrewModal");
   if (btn) btn.classList.add("spin");
@@ -1936,17 +2212,17 @@ function renderCrewSearchResults(crews, query) {
 
   if (filtered.length === 0) {
     listContainer.innerHTML = `
-      <div style="padding: 12px; text-align: center; color: var(--text-muted); font-size: 11px;">
+      <div style="padding: 14px; text-align: center; color: var(--text-muted); font-size: 11.5px;">
         Tidak ada MDS yang cocok dengan "${escapeHtml(cleanQuery)}"
       </div>
     `;
     return;
   }
 
-  const currentSelectedName = (document.getElementById("profileNameInput")?.value || state.profile.nama || "").toLowerCase().trim();
+  const currentSelectedName = (state.profile.nama || "").toLowerCase().trim();
 
   let html = "";
-  filtered.slice(0, 30).forEach(c => {
+  filtered.slice(0, 40).forEach(c => {
     const initials = (c.nama || "MDS")
       .split(" ")
       .map(w => w[0])
@@ -1958,23 +2234,23 @@ function renderCrewSearchResults(crews, query) {
     const isCurrentActive = c.nama && c.nama.toLowerCase().trim() === currentSelectedName;
 
     html += `
-      <div class="crew-item-card ${isCurrentActive ? 'active' : ''}" onclick="selectCrewFromList('${escapeHtml(c.nama)}', '${escapeHtml(c.id || '')}', '${escapeHtml(cleanModul)}')">
+      <div class="crew-item-card ${isCurrentActive ? 'active' : ''}" onclick="selectCrewFromList('${escapeHtml(c.nama)}', '${escapeHtml(c.id || '')}', '${escapeHtml(cleanModul)}', '${escapeHtml(c.account || 'ALFAMART')}')">
         <div style="display: flex; align-items: center; gap: 8px; min-width: 0;">
           <div class="crew-item-avatar">${initials}</div>
           <div style="min-width: 0;">
             <div style="font-size: 12px; font-weight: 700; color: var(--text-main); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
-              ${escapeHtml(c.nama)}
+              ${escapeHtml(c.nama)} ${isCurrentActive ? '<span style="font-size: 9.5px; color: var(--primary); font-weight: 800;">(Aktif)</span>' : ''}
             </div>
             <div style="font-size: 10px; color: var(--text-muted);">
-              ID: <strong>${escapeHtml(c.id || '-')}</strong> &bull; Modul: <strong>${escapeHtml(cleanModul)}</strong>
+              ID: <strong>${escapeHtml(c.id || '-')}</strong> &bull; ${escapeHtml(c.account || 'ALFAMART')}
             </div>
           </div>
         </div>
-        <div style="display: flex; align-items: center; gap: 4px; flex-shrink: 0;">
+        <div style="display: flex; align-items: center; gap: 6px; flex-shrink: 0;">
           <span style="font-size: 10px; font-weight: 800; background: var(--primary-light); color: var(--primary); padding: 2px 6px; border-radius: 99px;">
             ${escapeHtml(cleanModul)}
           </span>
-          ${isCurrentActive ? '<i data-lucide="check-circle" style="width: 15px; height: 15px; color: var(--success);"></i>' : ''}
+          ${isCurrentActive ? '<i data-lucide="check-circle" style="width: 15px; height: 15px; color: var(--success);"></i>' : '<i data-lucide="chevron-right" style="width: 14px; height: 14px; color: var(--text-muted);"></i>'}
         </div>
       </div>
     `;
@@ -1984,22 +2260,24 @@ function renderCrewSearchResults(crews, query) {
   if (window.lucide) lucide.createIcons();
 }
 
-window.selectCrewFromList = function(nama, code, modul) {
-  const nameInput = document.getElementById("profileNameInput");
-  const codeInput = document.getElementById("profileCodeInput");
-  const moduleSelect = document.getElementById("profileModuleSelect");
-  const searchInput = document.getElementById("crewSearchInput");
+window.selectCrewFromList = function (nama, code, modul, account) {
+  state.profile = {
+    nama: nama,
+    kodeCrew: code || "",
+    modul: modul || "LP4",
+    account: account || "ALFAMART"
+  };
 
-  if (nameInput) nameInput.value = nama;
-  if (codeInput) codeInput.value = code;
-  if (moduleSelect && modul) {
-    moduleSelect.value = modul;
-  }
+  localStorage.setItem("mds_crew_profile", JSON.stringify(state.profile));
+  renderProfileUI();
 
-  // Bersihkan search input dan render ulang list dengan menandai yang terpilih
-  if (searchInput) searchInput.value = "";
-  renderCrewSearchResults(allMasterCrewsCache, "");
+  document.getElementById("crewSelectModal")?.classList.remove("active");
   showToast(`MDS Terpilih: ${nama} (${modul})`, "success");
+
+  // Jika sedang di tab jadwal terinput, otomatis muat jadwal rute untuk MDS terpilih
+  if (state.currentView === "schedule") {
+    loadScheduledStores();
+  }
 };
 
 async function handleProfileSave(e) {
@@ -2160,55 +2438,206 @@ function closeHelpModal() {
   if (modal) modal.classList.remove("active");
 }
 
-// Konfigurasi Langkah-Langkah Tur Interaktif (100% Lengkap untuk MDS)
+// Data Dummy Khusus Simulasi Tur Interaktif
+const DUMMY_TOUR_STORES = [
+  {
+    kodeToko: "1V01",
+    account: "ALFAMART",
+    namaToko: "ALFAMART SUDIRMAN",
+    kota: "JAKARTA PUSAT",
+    kecamatan: "TANAH ABANG",
+    lat: -6.2088,
+    lon: 106.8200
+  },
+  {
+    kodeToko: "TYQZ",
+    account: "INDOMARET",
+    namaToko: "INDOMARET AHMAD YANI",
+    kota: "JAKARTA PUSAT",
+    kecamatan: "CEMPAKA PUTIH",
+    lat: -6.1850,
+    lon: 106.8450
+  }
+];
+
+let savedRealSelectedStores = null;
+
+function closeAllModalsForTour() {
+  document.querySelectorAll(".modal-backdrop").forEach(m => m.classList.remove("active"));
+}
+
+function setupTourDummyStores() {
+  state.selectedStores.clear();
+  DUMMY_TOUR_STORES.forEach(st => {
+    state.selectedStores.set(getStoreKey(st), { ...st });
+  });
+  renderSelectedRouteMarkersAndPolyline(Array.from(state.selectedStores.values()));
+  updateFloatingBar();
+}
+
+// Konfigurasi Langkah-Langkah Tur Interaktif (Lengkap & Terperinci untuk MDS)
 const TOUR_STEPS = [
   {
-    target: "#btnEditProfile",
-    title: "👤 1. Identitas & Modul MDS",
-    desc: "Pastikan Nama, Kode Crew, dan Modul (misal LP4, DK1, LK2) sudah sesuai dengan data Anda. Input jadwal Anda akan otomatis tercatat ke Spreadsheet Modul Anda.",
-    tip: "Klik bar profil ini kapan saja untuk memilih nama Anda dari database master crew."
+    target: "#btnSelectMdsDropdown",
+    title: "👤 1. Pilih MDS & Tombol Edit Profil",
+    desc: "• Tombol Ikon Orang (👤): Klik untuk mengedit Profil Anda (Nama, ID & Modul Wilayah Kerja).\n• Bar Nama MDS: Klik untuk mencari & memilih rekan MDS lain dari Master Crew jika ingin melihat rute mereka.",
+    tip: "Data akun Anda aman dan tidak akan tertimpa saat memilih atau mengintip jadwal rekan.",
+    action: () => {
+      closeAllModalsForTour();
+      switchAppView("input");
+    }
   },
   {
     target: "#routeDatePickerWrapper",
-    title: "📅 2. Kalender Tanggal Rute",
-    desc: "Klik kalender ini untuk memilih tanggal kunjungan Anda. Sistem otomatis mengambil angka tanggalnya (Rute 1 - 31) agar sesuai dengan database AppSheet & Google Sheet.",
-    tip: "Aplikasi otomatis memilih tanggal hari ini saat dibuka."
-  },
-  {
-    target: ".tab-switcher-floating",
-    title: "🗺️ 3. Peta Input vs Jadwal Terinput",
-    desc: "Gunakan tab ini untuk beralih antara membuat rute baru (Peta & Pilih Toko) atau melihat toko yang sudah pernah Anda jadwalkan (Jadwal Terinput).",
-    tip: "Di tab Jadwal Terinput, Anda juga bisa menyalin teks laporan siap kirim ke WhatsApp supervisor."
+    title: "📅 2. Kalender Tanggal Rute (1 - 31)",
+    desc: "Klik tombol kalender ini untuk memilih tanggal kunjungan kerja Anda. Sistem otomatis mengambil angka tanggalnya (Rute 1 - 31) agar sesuai dengan database Google Spreadsheet.",
+    tip: "Aplikasi otomatis memilih tanggal hari ini saat dibuka.",
+    action: () => {
+      closeAllModalsForTour();
+      switchAppView("input");
+    }
   },
   {
     target: "#searchInput",
-    title: "🔍 4. Cari dari Seluruh Master Toko",
-    desc: "Ketik nama toko, kode toko, atau nama kecamatan. Sistem membaca database lokal seluruh toko secara instan tanpa perlu koneksi lambat.",
-    tip: "Gunakan tombol filter brand di bawahnya untuk menyaring Indomaret, Alfamart, Alfamidi, atau Lawson."
-  },
-  {
-    target: "#btnOpenCustomStore",
-    title: "✍️ 5. Tambah / Edit Toko Manual",
-    desc: "Jika ada toko yang titik koordinatnya belum pas atau ada toko baru buka di lapangan, Anda bisa mengedit atau menambahkannya secara mandiri.",
-    tip: "Ada tombol 'Gunakan GPS HP' di dalam form untuk mengambil titik koordinat otomatis saat berada di depan toko!"
-  },
-  {
-    target: "#btnGpsLocate",
-    title: "📍 6. Deteksi Posisi GPS Anda",
-    desc: "Klik tombol crosshair ini untuk langsung menerbangkan peta ke lokasi Anda saat ini di lapangan dan menampilkan toko-toko terdekat di sekitar Anda.",
-    tip: "Pastikan izin GPS di browser HP Anda sudah diizinkan (Allow Location)."
+    title: "🔍 3. Cari Toko di Database",
+    desc: "Ketik min. 4 huruf nama toko, kode toko, atau nama kecamatan. Daftar toko yang cocok akan otomatis muncul di bawah kotak pencarian.",
+    tip: "Gunakan tombol filter brand di bawahnya (Indomaret, Alfamart, Alfamidi, Lawson) untuk menyaring hasil pencarian.",
+    action: () => {
+      closeAllModalsForTour();
+      switchAppView("input");
+    }
   },
   {
     target: "#floatingBar",
-    title: "📋 7. Review & Kirim Jadwal",
-    desc: "Toko yang Anda pilih akan muncul di sini lengkap dengan nomor urut kunjungan dan garis rute di peta. Klik 'Kirim Jadwal' untuk otomatis menulis ke 3 Spreadsheet Google!",
-    tip: "Toko yang sudah dikunci MDS lain bertanda 🔒 merah, dan kunjungan ulang < 14 hari bertanda ⚠️ kuning (perlu konfirmasi)."
+    title: "➕ 4. Cara Menambah Toko ke Rute",
+    desc: "Ada 2 cara mudah:\n1. Klik tombol (+) biru/hijau di sebelah kanan nama toko pada hasil pencarian.\n2. Atau klik Pin toko di peta lalu pilih 'Masukkan ke Rute'.\nToko otomatis masuk ke keranjang rute bawah ini dan mendapat nomor urut (#1, #2, dst).",
+    tip: "Contoh simulasi: 2 toko dummy (#1 Alfamart Sudirman & #2 Indomaret Ahmad Yani) telah dimasukkan ke rute Anda.",
+    action: () => {
+      closeAllModalsForTour();
+      switchAppView("input");
+      setupTourDummyStores();
+      elements.floatingBar?.classList.add("visible");
+    }
   },
   {
-    target: "#btnOpenHelpTour",
-    title: "💡 8. Pusat Panduan Kapan Saja",
-    desc: "Tutorial selesai! Jika sewaktu-waktu Anda butuh panduan lagi atau ingin membaca aturan validasi toko, cukup klik tombol tanda tanya ini.",
-    tip: "Selamat bertugas di lapangan! Aplikasi ini siap membantu efisiensi rute kunjungan Anda 🚀"
+    target: "#drawerModal .modal-dialog",
+    title: "📋 5. Review & Cek Urutan Rute",
+    desc: "Klik tombol 'Review' di bar bawah untuk membuka daftar toko terpilih ini. Di sini Anda bisa memeriksa nomor urut toko, rincian lokasi, atau menyalin teks laporan WhatsApp.",
+    tip: "Tombol 'Salin WA' akan menghasilkan format rekap rute rapi siap kirim ke grup WhatsApp supervisor.",
+    action: () => {
+      setupTourDummyStores();
+      openDrawerModal();
+    }
+  },
+  {
+    target: "#drawerStoreList",
+    title: "🗑️ 6. Hapus / Batalkan Toko dari Rute",
+    desc: "Jika salah memilih toko, Anda cukup klik ikon tong sampah merah (🗑️) di review drawer ini, atau klik 'Keluarkan dari Rute' pada popup pin toko di peta.",
+    tip: "⚠️ PENTING: Ini HANYA membatalkan toko dari jadwal rute hari ini, BUKAN menghapus data toko dari master Google Sheet!",
+    action: () => {
+      setupTourDummyStores();
+      openDrawerModal();
+    }
+  },
+  {
+    target: "#customStoreModal .modal-dialog",
+    title: "✍️ 7. Tambah Toko Baru (Bisa dari Mana Saja)",
+    desc: "Jika ada toko yang belum terdaftar di database, Anda bisa menambahkannya KAPAN SAJA (dari rumah/kantor). Cukup isi Akun, Kode Toko & Nama Toko. Alamat & Titik GPS BOLEH DIKOSONGKAN (opsional) jika belum tahu!",
+    tip: "💡 Jika pas sedang berada di depan tokonya, barulah Anda bisa klik tombol 'Gunakan Lokasi GPS Saya' untuk mengambil koordinat otomatis.",
+    action: () => {
+      closeAllModalsForTour();
+      switchAppView("input");
+      openCustomStoreModal({
+        account: "INDOMARET",
+        kodeToko: "IDM999",
+        namaToko: "INDOMARET BARU DUMMY",
+        kota: "KOTA JAKARTA",
+        kecamatan: "GAMBIR",
+        lat: "",
+        lon: ""
+      });
+    }
+  },
+  {
+    target: "#customStoreModal .modal-dialog",
+    title: "✏️ 8. Tombol Edit (Pensil) pada Toko",
+    desc: "Pada setiap toko hasil pencarian dan popup peta ada tombol pensil (✏️ Edit). Klik tombol pensil ini kapan saja jika Anda ingin memperbaiki titik koordinat peta yang melenceng atau mengubah nama toko.",
+    tip: "Setelah disimpan, posisi pin toko di peta Anda akan langsung berpindah ke titik yang benar.",
+    action: () => {
+      closeAllModalsForTour();
+      switchAppView("input");
+      openCustomStoreModal({
+        account: "ALFAMART",
+        kodeToko: "1V01",
+        namaToko: "ALFAMART SUDIRMAN",
+        kota: "JAKARTA PUSAT",
+        kecamatan: "TANAH ABANG",
+        lat: -6.2088,
+        lon: 106.8200
+      });
+    }
+  },
+  {
+    target: "#btnSubmitRoute",
+    title: "🚀 9. Kirim Jadwal ke 3 Google Spreadsheet",
+    desc: "Setelah rute selesai disusun, klik tombol 'Kirim' di bar bawah. Sistem otomatis mendistribusikan data ke 3 Google Sheet: Spreadsheet Modul Anda, Data External, dan Sheet Absen.",
+    tip: "Data selama simulasi tutorial ini 100% dummy dan tidak akan dikirim ke server.",
+    action: () => {
+      closeAllModalsForTour();
+      switchAppView("input");
+      setupTourDummyStores();
+      elements.floatingBar?.classList.add("visible");
+    }
+  },
+  {
+    target: "#tabBtnSchedule",
+    title: "👁️ 10. Beralih ke Mode 'Jadwal Saya'",
+    desc: "Klik tombol bulat mata (👁️) di kanan bawah untuk melihat jadwal rute yang sudah tersimpan di Google Sheet. Toko yang terkirim akan ditandai pin bernomor dan garis rute di peta.",
+    tip: "Klik tombol (+) di atasnya kapan saja untuk kembali ke mode input / pencarian toko.",
+    action: () => {
+      closeAllModalsForTour();
+      switchAppView("schedule");
+    }
+  },
+  {
+    target: "#btnRefreshSchedule",
+    title: "🔄 11. Tombol 'Refresh Jadwal' Rute",
+    desc: "Tombol putar kecil (🔄) di kartu jadwal ini untuk menyegarkan / menarik ulang jadwal rute hari ini dari Google Sheet.\n\n💡 Kapan dipakai? Jika Anda baru saja input dari HP rekan, atau ingin melihat jadwal rute yang baru diupdate tanpa harus keluar-masuk web.",
+    tip: "Tombol ini HANYA menyegarkan jadwal rute hari ini (proses sangat kilat dalam 1 detik).",
+    action: () => {
+      closeAllModalsForTour();
+      switchAppView("schedule");
+    }
+  },
+  {
+    target: "#btnForceSync",
+    title: "📦 12. Tombol 'Sync Master Toko'",
+    desc: "Ada di menu 'Pengaturan & Sync'. Tombol ini untuk mengunduh ulang seluruh database master toko terbaru dari Google Sheet pusat ke memori HP Anda.\n\n💡 Kapan dipakai? HANYA jika ada puluhan toko baru yang baru ditambahkan di master pusat dan belum muncul saat dicari di HP Anda.",
+    tip: "Cukup dijalankan sesekali saat ada update master toko besar dari koordinator.",
+    action: () => {
+      closeAllModalsForTour();
+      openSettingsModal();
+    }
+  },
+  {
+    target: "#btnHardRefreshMobile",
+    title: "⚡ 13. Bersihkan Cache & Hard Refresh HP",
+    desc: "Gunakan tombol petir (⚡) ini jika web di HP Anda terasa lambat/hang, tombol tidak merespon, atau tampilan web belum terupdate setelah perbaikan sistem.\n\n💡 Cara Kerja: Menghapus cache file lama di browser HP dan memuat ulang file aplikasi paling segar dari server secara otomatis.",
+    tip: "Solusi kilat nomor 1 jika web di HP Anda mengalami kendala tampilan atau lag!",
+    action: () => {
+      closeAllModalsForTour();
+      openSettingsModal();
+    }
+  },
+  {
+    target: "#btnSettingsInstallPwa",
+    title: "📲 14. Install Aplikasi ke HP (PWA)",
+    desc: "Aplikasi ini adalah PWA (Progressive Web App) yang bisa di-install langsung ke layar utama HP Android Anda!\n\n• Caranya: Klik tombol 'Install Aplikasi ke HP' ini atau buka titik-3 Chrome dan pilih 'Tambahkan ke Layar Utama'.\n• Keuntungan: Muncul di homescreen dengan ikon keren, berjalan fullscreen tanpa URL bar, dan jauh lebih hemat kuota!",
+    tip: "Setelah di-install, cukup klik ikon 'Web Absen' di menu HP untuk langsung bekerja!",
+    action: () => {
+      closeAllModalsForTour();
+      openSettingsModal();
+    }
   }
 ];
 
@@ -2217,13 +2646,25 @@ let currentTourStep = 0;
 function startInteractiveTour() {
   currentTourStep = 0;
   if (!elements.tourOverlay) return;
+  savedRealSelectedStores = new Map(state.selectedStores);
+  state.isTourMode = true;
   elements.tourOverlay.style.display = "block";
   renderTourStep(currentTourStep);
 }
 
 function endInteractiveTour() {
+  closeAllModalsForTour();
   if (elements.tourOverlay) elements.tourOverlay.style.display = "none";
   localStorage.setItem("mds_tour_completed", "true");
+  state.isTourMode = false;
+
+  // Restore real user state
+  state.selectedStores = savedRealSelectedStores ? new Map(savedRealSelectedStores) : new Map();
+  switchAppView("input");
+  renderMapMarkers(state.searchResults, false);
+  renderSelectedRouteMarkersAndPolyline(Array.from(state.selectedStores.values()));
+  renderFloatingSearchResults(state.searchResults, false);
+  updateFloatingBar();
 }
 
 function nextTourStep() {
@@ -2247,7 +2688,11 @@ function renderTourStep(index) {
   const step = TOUR_STEPS[index];
   if (!step) return;
 
-  const targetEl = document.querySelector(step.target);
+  // Jalankan aksi simulasi per langkah (buka modal, pasang toko dummy, dsb)
+  if (typeof step.action === "function") {
+    step.action();
+  }
+
   const spotlight = elements.tourSpotlight;
   const tooltip = elements.tourTooltip;
 
@@ -2273,45 +2718,55 @@ function renderTourStep(index) {
     elements.tourBtnPrev.style.display = index === 0 ? "none" : "inline-flex";
   }
   if (elements.tourBtnNext) {
-    elements.tourBtnNext.innerHTML = index === TOUR_STEPS.length - 1 
-      ? `<span>Mulai Aplikasi</span> <i data-lucide="check" style="width: 14px; height: 14px;"></i>` 
+    elements.tourBtnNext.innerHTML = index === TOUR_STEPS.length - 1
+      ? `<span>Selesai</span> <i data-lucide="check" style="width: 14px; height: 14px;"></i>`
       : `<span>Lanjut</span> <i data-lucide="chevron-right" style="width: 14px; height: 14px;"></i>`;
   }
 
-  // Position Spotlight & Tooltip
-  if (targetEl && spotlight && tooltip) {
-    const rect = targetEl.getBoundingClientRect();
-    const pad = 6;
-    
-    // Spotlight rect
-    spotlight.style.top = `${Math.max(0, rect.top - pad)}px`;
-    spotlight.style.left = `${Math.max(0, rect.left - pad)}px`;
-    spotlight.style.width = `${rect.width + (pad * 2)}px`;
-    spotlight.style.height = `${rect.height + (pad * 2)}px`;
-
-    // Tooltip position calculation
-    const tooltipWidth = 320;
-    const windowWidth = window.innerWidth;
-    const windowHeight = window.innerHeight;
-
-    let tooltipTop;
-    let tooltipLeft = Math.max(16, Math.min(rect.left, windowWidth - tooltipWidth - 16));
-
-    // If target is in top half of screen, put tooltip below; else above
-    if (rect.bottom + 230 < windowHeight) {
-      tooltipTop = rect.bottom + 14;
-    } else {
-      tooltipTop = Math.max(16, rect.top - 250);
-    }
-
-    tooltip.style.top = `${tooltipTop}px`;
-    tooltip.style.left = `${tooltipLeft}px`;
-
-    // Scroll into view if needed
-    targetEl.scrollIntoView({ behavior: "smooth", block: "nearest" });
-  }
-
   if (window.lucide) lucide.createIcons();
+
+  // Position Spotlight & Tooltip with requestAnimationFrame for rendered DOM
+  requestAnimationFrame(() => {
+    const targetEl = document.querySelector(step.target);
+    if (targetEl && spotlight && tooltip) {
+      const rect = targetEl.getBoundingClientRect();
+      const pad = 6;
+
+      // Spotlight rect
+      spotlight.style.top = `${Math.max(0, rect.top - pad)}px`;
+      spotlight.style.left = `${Math.max(0, rect.left - pad)}px`;
+      spotlight.style.width = `${rect.width + (pad * 2)}px`;
+      spotlight.style.height = `${rect.height + (pad * 2)}px`;
+
+      // Tooltip position calculation (anti-overflow & anti-clipping)
+      const windowWidth = window.innerWidth;
+      const windowHeight = window.innerHeight;
+      const tooltipHeight = tooltip.offsetHeight || 260;
+      const tooltipWidth = Math.min(320, windowWidth - 32);
+
+      let tooltipLeft = Math.max(16, Math.min(rect.left + (rect.width / 2) - (tooltipWidth / 2), windowWidth - tooltipWidth - 16));
+      let tooltipTop;
+
+      const spaceBelow = windowHeight - (rect.bottom + pad);
+      const spaceAbove = rect.top - pad;
+
+      if (spaceBelow >= tooltipHeight + 16) {
+        tooltipTop = rect.bottom + pad + 10;
+      } else if (spaceAbove >= tooltipHeight + 16) {
+        tooltipTop = rect.top - pad - tooltipHeight - 10;
+      } else {
+        tooltipTop = Math.max(12, (windowHeight - tooltipHeight) / 2);
+      }
+
+      // Pastikan tidak pernah kepotong di bagian atas ataupun bawah layar
+      tooltipTop = Math.max(12, Math.min(tooltipTop, windowHeight - tooltipHeight - 12));
+
+      tooltip.style.top = `${tooltipTop}px`;
+      tooltip.style.left = `${tooltipLeft}px`;
+
+      targetEl.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }
+  });
 }
 
 /* ===================================================
@@ -2535,7 +2990,7 @@ function renderMonitoringList() {
   if (window.lucide) lucide.createIcons();
 }
 
-window.switchMonitoringTab = function(tab) {
+window.switchMonitoringTab = function (tab) {
   monitoringState.activeTab = tab;
   const btnPending = document.getElementById("btnMonTabPending");
   const btnSubmitted = document.getElementById("btnMonTabSubmitted");
@@ -2551,7 +3006,7 @@ window.switchMonitoringTab = function(tab) {
   renderMonitoringList();
 };
 
-window.filterMonitoringByModule = function(modulGroup) {
+window.filterMonitoringByModule = function (modulGroup) {
   monitoringState.modulFilter = modulGroup;
   document.querySelectorAll(".chip-filter").forEach(chip => {
     if (chip.dataset.modul === modulGroup) {
@@ -2604,6 +3059,163 @@ function copyMonitoringReportWA() {
   text += `\n_Diupdate otomatis via Web Absen MDS_ 🚀`;
 
   safeCopyToClipboard(text, "📋 Format Rekap Monitoring berhasil disalin ke clipboard!");
+}
+
+/* ===================================================
+   MODERN CUSTOM CONFIRM & DIALOG HELPER
+   =================================================== */
+function showCustomConfirm({
+  title = "Konfirmasi Tindakan",
+  message = "Apakah Anda yakin ingin melanjutkan?",
+  icon = "alert-triangle",
+  type = "warning", // "warning" | "danger" | "info"
+  okText = "Ya, Lanjutkan",
+  cancelText = "Batal"
+} = {}) {
+  return new Promise((resolve) => {
+    const modal = document.getElementById("customConfirmModal");
+    const titleEl = document.getElementById("confirmTitle");
+    const msgEl = document.getElementById("confirmMessage");
+    const iconContainer = document.getElementById("confirmIconContainer");
+    const iconEl = document.getElementById("confirmIcon");
+    const btnOk = document.getElementById("btnConfirmOk");
+    const btnCancel = document.getElementById("btnConfirmCancel");
+    const okTextEl = document.getElementById("confirmOkText");
+
+    if (!modal) {
+      resolve(true);
+      return;
+    }
+
+    if (titleEl) titleEl.textContent = title;
+    if (msgEl) msgEl.textContent = message;
+    if (okTextEl) okTextEl.textContent = okText;
+    if (btnCancel) {
+      const cancelSpan = btnCancel.querySelector("span");
+      if (cancelSpan) cancelSpan.textContent = cancelText;
+    }
+
+    if (iconContainer) {
+      iconContainer.className = `confirm-icon-box ${type}`;
+    }
+    if (iconEl) {
+      iconEl.setAttribute("data-lucide", icon);
+    }
+
+    if (btnOk) {
+      if (type === "danger") {
+        btnOk.className = "btn-primary btn-danger-confirm";
+      } else {
+        btnOk.className = "btn-primary";
+      }
+    }
+
+    if (window.lucide) lucide.createIcons();
+    modal.classList.add("active");
+
+    const cleanup = () => {
+      modal.classList.remove("active");
+      btnOk?.removeEventListener("click", onOk);
+      btnCancel?.removeEventListener("click", onCancel);
+    };
+
+    const onOk = () => {
+      cleanup();
+      resolve(true);
+    };
+
+    const onCancel = () => {
+      cleanup();
+      resolve(false);
+    };
+
+    btnOk?.addEventListener("click", onOk);
+    btnCancel?.addEventListener("click", onCancel);
+  });
+}
+
+/* ===================================================
+   PROGRESSIVE WEB APP (PWA) INSTALL & OFFLINE ENGINE
+   =================================================== */
+let deferredPwaPrompt = null;
+
+function initPwaInstall() {
+  // 1. Registrasi Service Worker
+  if ("serviceWorker" in navigator) {
+    window.addEventListener("load", () => {
+      navigator.serviceWorker.register("./sw.js").then((reg) => {
+        console.log("[PWA] Service Worker aktif:", reg.scope);
+      }).catch((err) => {
+        console.warn("[PWA] Service Worker gagal registrasi:", err);
+      });
+    });
+  }
+
+  // 2. Tangkap event prompt install dari browser Android Chrome
+  window.addEventListener("beforeinstallprompt", (e) => {
+    e.preventDefault();
+    deferredPwaPrompt = e;
+
+    const btnInstallMenu = document.getElementById("btnInstallPwa");
+    const groupInstall = document.getElementById("pwaInstallGroup");
+
+    if (btnInstallMenu) btnInstallMenu.style.display = "flex";
+    if (groupInstall) groupInstall.style.display = "block";
+  });
+
+  // 3. Deteksi apakah sudah terinstall sebagai Standalone PWA atau masih di browser biasa
+  const isStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+  
+  if (!isStandalone) {
+    // Jika masih di browser biasa, tampilkan modal ajakan pasang aplikasi ke homescreen
+    const dismissedSession = sessionStorage.getItem("mds_pwa_gate_dismissed");
+    if (!dismissedSession) {
+      setTimeout(() => {
+        const gateModal = document.getElementById("pwaInstallGateModal");
+        if (gateModal && !state.isTourMode) {
+          gateModal.classList.add("active");
+          if (window.lucide) lucide.createIcons();
+        }
+      }, 1500);
+    }
+  }
+
+  // 4. Handler Tombol Install
+  const handleInstallClick = async () => {
+    const gateModal = document.getElementById("pwaInstallGateModal");
+    if (gateModal) gateModal.classList.remove("active");
+
+    if (!deferredPwaPrompt) {
+      showToast("💡 Buka menu titik 3 (⋮) di Chrome HP Anda lalu pilih 'Tambahkan ke Layar Utama' / 'Install Aplikasi'", "info");
+      return;
+    }
+    deferredPwaPrompt.prompt();
+    const { outcome } = await deferredPwaPrompt.userChoice;
+    if (outcome === "accepted") {
+      showToast("Terima kasih! Retail Ops Rute Master berhasil dipasang di HP Anda 🚀", "success");
+      const btnInstallMenu = document.getElementById("btnInstallPwa");
+      const groupInstall = document.getElementById("pwaInstallGroup");
+      if (btnInstallMenu) btnInstallMenu.style.display = "none";
+      if (groupInstall) groupInstall.style.display = "none";
+    }
+    deferredPwaPrompt = null;
+  };
+
+  document.getElementById("btnInstallPwa")?.addEventListener("click", handleInstallClick);
+  document.getElementById("btnSettingsInstallPwa")?.addEventListener("click", handleInstallClick);
+  document.getElementById("btnGateInstallNow")?.addEventListener("click", handleInstallClick);
+
+  document.getElementById("btnGateDismiss")?.addEventListener("click", () => {
+    document.getElementById("pwaInstallGateModal")?.classList.remove("active");
+    sessionStorage.setItem("mds_pwa_gate_dismissed", "true");
+    showToast("💡 Jangan lupa pasang di homescreen agar tidak perlu minta link web lagi!", "warning");
+  });
+
+  window.addEventListener("appinstalled", () => {
+    showToast("Retail Ops Rute Master berhasil dipasang di layar utama HP!", "success");
+    document.getElementById("pwaInstallGateModal")?.classList.remove("active");
+    deferredPwaPrompt = null;
+  });
 }
 
 

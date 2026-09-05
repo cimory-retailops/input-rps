@@ -90,6 +90,8 @@ async function syncMasterStoresFromSheet(onProgress) {
   let latIdx = 7;
   let lonIdx = 8;
   let typeIdx = 9;
+  let provIdx = -1;
+  let crewIdx = -1;
 
   // Deteksi jika baris pertama memiliki header yang valid
   if (rows[0] && rows[0].length >= 8) {
@@ -102,6 +104,8 @@ async function syncMasterStoresFromSheet(onProgress) {
     const foundKota = headers.findIndex(h => h.includes("kabkota") || h.includes("kota"));
     const foundLat = headers.findIndex(h => h.includes("latitude") || h === "lat");
     const foundLon = headers.findIndex(h => h.includes("longitude") || h.includes("long") || h === "lon" || h === "lng");
+    const foundProv = headers.findIndex(h => h.includes("provinsi") || h.includes("province"));
+    const foundCrew = headers.findIndex(h => h.includes("crew") || h.includes("mds") || h.includes("namacrew") || h.includes("kodecrew"));
 
     if (foundCode >= 0) codeIdx = foundCode;
     if (foundName >= 0) nameIdx = foundName;
@@ -111,6 +115,8 @@ async function syncMasterStoresFromSheet(onProgress) {
     if (foundKota >= 0) kotaIdx = foundKota;
     if (foundLat >= 0) latIdx = foundLat;
     if (foundLon >= 0) lonIdx = foundLon;
+    if (foundProv >= 0) provIdx = foundProv;
+    if (foundCrew >= 0) crewIdx = foundCrew;
   }
 
   const storeMap = new Map(); // key: kodeToko_account
@@ -136,6 +142,8 @@ async function syncMasterStoresFromSheet(onProgress) {
       dcName: (row[dcIdx] || row[2] || "").toString().trim(),
       kecamatan: (row[kecIdx] || row[4] || "").toString().trim(),
       kota: (row[kotaIdx] || row[5] || "").toString().trim(),
+      provinsi: provIdx >= 0 && row[provIdx] ? row[provIdx].toString().trim() : "",
+      crew: crewIdx >= 0 && row[crewIdx] ? row[crewIdx].toString().trim() : "",
       lat: !isNaN(lat) && lat !== null && lat !== 0 ? lat : null,
       lon: !isNaN(lon) && lon !== null && lon !== 0 ? lon : null
     };

@@ -72,8 +72,8 @@ async function saveStoresBatch(stores) {
 
     for (let i = 0; i < stores.length; i++) {
       const item = stores[i];
-      // Buat search index gabungan lowercase untuk pencarian kilat
-      const searchIndex = `${item.kodeToko || ""} ${item.namaToko || ""} ${item.account || ""} ${item.kota || ""} ${item.kecamatan || ""}`.toLowerCase();
+      // Buat search index gabungan lowercase untuk pencarian kilat (termasuk provinsi & crew)
+      const searchIndex = `${item.kodeToko || ""} ${item.namaToko || ""} ${item.account || ""} ${item.kota || ""} ${item.kecamatan || ""} ${item.provinsi || ""} ${item.crew || ""}`.toLowerCase();
       
       storeOS.add({
         id: i + 1,
@@ -83,6 +83,8 @@ async function saveStoresBatch(stores) {
         dcName: item.dcName || "",
         kecamatan: item.kecamatan || "",
         kota: item.kota || "",
+        provinsi: item.provinsi || "",
+        crew: item.crew || "",
         lat: item.lat || null,
         lon: item.lon || null,
         searchIndex: searchIndex
@@ -196,7 +198,7 @@ async function checkIfStoresHaveCoordinates() {
 }
 
 /**
- * Ambil detail toko berdasarkan Kode Toko, Akun, atau Nama Toko (Smart Fallback)
+ * Ambil detail toko berdasarkan Kode Toko, Akun, atau Nama Toko (Strict Account Matching & Smart Fallback)
  */
 async function getStoreByCode(kodeToko, account = "", namaToko = "") {
   if (!kodeToko && !namaToko) return null;
@@ -224,44 +226,52 @@ async function getStoreByCode(kodeToko, account = "", namaToko = "") {
       req.onsuccess = () => {
         const results = req.result || [];
         if (results.length > 0) {
-          // Jika ada filter account, cari yang account-nya cocok dan punya GPS
+          // Jika ada filter account, wajib prioritaskan & kunci ke account yang cocok
           if (cleanAccount) {
-            const exactMatch = results.find(r => (r.account || "").toUpperCase() === cleanAccount && r.lat && r.lon);
-            if (exactMatch) return resolve(exactMatch);
-            const accountMatch = results.find(r => (r.account || "").toUpperCase() === cleanAccount);
-            if (accountMatch) return resolve(accountMatch);
+            const exactGpsMatch = results.find(r => (r.account || "").toUpperCase() === cleanAccount && r.lat && r.lon && !isNaN(r.lat) && !isNaN(r.lon));
+            if (exactGpsMatch) return resolve(exactGpsMatch);
+
+            const exactAccountMatch = results.find(r => (r.account || "").toUpperCase() === cleanAccount);
+            if (exactAccountMatch) return resolve(exactAccountMatch);
+
+            // JANGAN pernah fallback ke brand ritel lain (misal Alfa vs Indomaret) jika kodenya sama!
+            // Coba cari nama toko di brand yang sama
+            if (cleanName && cleanName.length >= 4) {
+              return fallbackSearchByName(storeOS, cleanName, cleanAccount, resolve);
+            }
+            return resolve(null);
           }
 
-          // Cari yang memiliki koordinat GPS lengkap
+          // Jika tidak ada filter account, cari yang memiliki koordinat GPS lengkap
           const gpsMatch = results.find(r => r.lat && r.lon && !isNaN(r.lat) && !isNaN(r.lon));
           if (gpsMatch) return resolve(gpsMatch);
 
           return resolve(results[0]);
         }
 
-        // Jika kode tidak ketemu (misal kode Alfamart vs Indomaret), cari via Nama Toko
+        // Jika kode tidak ketemu di DB, cari via Nama Toko
         if (cleanName && cleanName.length >= 4) {
-          fallbackSearchByName(storeOS, cleanName, resolve);
+          fallbackSearchByName(storeOS, cleanName, cleanAccount, resolve);
         } else {
           resolve(null);
         }
       };
       req.onerror = () => {
         if (cleanName && cleanName.length >= 4) {
-          fallbackSearchByName(storeOS, cleanName, resolve);
+          fallbackSearchByName(storeOS, cleanName, cleanAccount, resolve);
         } else {
           resolve(null);
         }
       };
     } else if (cleanName && cleanName.length >= 4) {
-      fallbackSearchByName(storeOS, cleanName, resolve);
+      fallbackSearchByName(storeOS, cleanName, cleanAccount, resolve);
     } else {
       resolve(null);
     }
   });
 }
 
-function fallbackSearchByName(storeOS, cleanName, resolve) {
+function fallbackSearchByName(storeOS, cleanName, cleanAccount = "", resolve) {
   const req = storeOS.openCursor();
   let candidateWithGps = null;
   let candidateAny = null;
@@ -270,6 +280,13 @@ function fallbackSearchByName(storeOS, cleanName, resolve) {
     const cursor = e.target.result;
     if (cursor) {
       const item = cursor.value;
+
+      // Filter account jika dispesifikasikan
+      if (cleanAccount && (item.account || "").toUpperCase() !== cleanAccount) {
+        cursor.continue();
+        return;
+      }
+
       const itemName = (item.namaToko || "")
         .toLowerCase()
         .replace(/\[.*?\]/g, "")
@@ -297,7 +314,7 @@ function fallbackSearchByName(storeOS, cleanName, resolve) {
  */
 async function saveCustomStore(store) {
   const db = await initDB();
-  const searchIndex = `${store.kodeToko || ""} ${store.namaToko || ""} ${store.account || ""} ${store.kota || ""} ${store.kecamatan || ""}`.toLowerCase();
+  const searchIndex = `${store.kodeToko || ""} ${store.namaToko || ""} ${store.account || ""} ${store.kota || ""} ${store.kecamatan || ""} ${store.provinsi || ""} ${store.crew || ""}`.toLowerCase();
 
   return new Promise((resolve, reject) => {
     const tx = db.transaction("stores", "readwrite");
@@ -310,18 +327,22 @@ async function saveCustomStore(store) {
       dcName: store.dcName || "",
       kecamatan: store.kecamatan || "",
       kota: store.kota || "",
+      provinsi: store.provinsi || "",
+      crew: store.crew || "",
       lat: store.lat ? parseFloat(store.lat) : null,
       lon: store.lon ? parseFloat(store.lon) : null,
       searchIndex: searchIndex
     };
 
-    // Cari apakah sudah ada id-nya
+    // Cari apakah sudah ada kode & account yang cocok
     const idx = storeOS.index("kodeToko");
-    const req = idx.get(record.kodeToko);
+    const req = idx.getAll(record.kodeToko);
 
     req.onsuccess = () => {
-      if (req.result && req.result.id) {
-        record.id = req.result.id;
+      const matches = req.result || [];
+      const existing = matches.find(r => (r.account || "").toUpperCase() === record.account);
+      if (existing && existing.id) {
+        record.id = existing.id;
         storeOS.put(record);
       } else {
         storeOS.add(record);

@@ -4,8 +4,17 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <meta name="theme-color" content="#4f46e5">
-  <meta name="description" content="Aplikasi Web Absen & Peta Rute Kunjungan MDS">
-  <title>MDS Route & Absen GIS Master</title>
+  <meta name="description" content="Aplikasi Retail Ops Rute Master & Absen Kunjungan MDS">
+  <title>Retail Ops Rute Master</title>
+
+  <!-- PWA Manifest & App Icons -->
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" type="image/png" href="icons/icon-192.png">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Retail Ops">
 
   <!-- Google Fonts: Plus Jakarta Sans -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -35,10 +44,33 @@
   <!-- Toast Notification Container -->
   <div class="toast-container" id="toastContainer"></div>
 
-  <!-- GPS Floating Locate Button -->
-  <button type="button" class="btn-gps-locate" id="btnGpsLocate" title="Lokasi Saya (GPS)">
-    <i data-lucide="crosshair" style="width: 22px; height: 22px;"></i>
-  </button>
+  <!-- Floating FAB Controls (Input Rute, Jadwal Saya, GPS Locate, Sync & Panduan) -->
+  <div class="floating-fab-controls" id="floatingFabControls">
+    <!-- Tombol Input Rute (+) -->
+    <button type="button" class="btn-circle-fab active" id="tabBtnInput" onclick="switchAppView('input')" title="Input Rute / Pilih Toko (+)">
+      <i data-lucide="plus" style="width: 20px; height: 20px;"></i>
+    </button>
+    
+    <!-- Tombol Jadwal Saya (Mata) -->
+    <button type="button" class="btn-circle-fab" id="tabBtnSchedule" onclick="switchAppView('schedule')" title="Lihat Jadwal Saya">
+      <i data-lucide="eye" style="width: 20px; height: 20px;"></i>
+    </button>
+
+    <!-- GPS Floating Locate Button -->
+    <button type="button" class="btn-circle-fab btn-gps-fab" id="btnGpsLocate" title="Lokasi Saya (GPS)">
+      <i data-lucide="crosshair" style="width: 20px; height: 20px;"></i>
+    </button>
+
+    <!-- Tombol Sync Master Toko & Pengaturan -->
+    <button type="button" class="btn-circle-fab" id="btnFabSync" title="Sync Master Toko & Pengaturan">
+      <i data-lucide="refresh-cw" style="width: 19px; height: 19px;"></i>
+    </button>
+
+    <!-- Tombol Panduan & Spotlight Tour -->
+    <button type="button" class="btn-circle-fab" id="btnFabGuide" title="Panduan & Spotlight Tour Interaktif">
+      <i data-lucide="help-circle" style="width: 20px; height: 20px;"></i>
+    </button>
+  </div>
 
   <!-- Floating UI Overlay Layers -->
   <div class="overlay-container">
@@ -46,65 +78,103 @@
     <!-- Top Overlays -->
     <div class="overlay-top">
       
-      <!-- Top Floating Navigation Bar (Row 1: Profile & Actions) -->
+      <!-- Top Floating Navigation Bar (Logo, Profile, Route Selector & Menu FAB) -->
       <header class="top-floating-bar">
-        <!-- Brand & Profile (Spacious & Easy to Click) -->
-        <div class="brand-badge">M</div>
-        
-        <!-- Profile Pill -->
-        <div class="profile-pill" id="btnEditProfile" title="Klik untuk ganti user / profil MDS">
-          <div class="profile-avatar-mini" id="userAvatar">YP</div>
+        <!-- Tombol Icon Orang / Profil (Khusus Edit Profil MDS Saya) -->
+        <button type="button" class="btn-brand-m" id="btnEditMyProfile" title="Edit Profil Saya (Nama, ID AppSheet & Modul)">
+          <i data-lucide="user" style="width: 17px; height: 17px;"></i>
+        </button>
+
+        <!-- Dropdown Pill Pilih MDS (Cari & Pilih MDS dari Master Crew) -->
+        <div class="profile-pill" id="btnSelectMdsDropdown" title="Pilih / Ganti MDS dari Master Crew">
+          <div class="profile-pill-avatar" id="userAvatar">YP</div>
           <div class="profile-info-block">
             <span class="profile-name-text" id="userName">Yohandi Pratama</span>
             <span class="profile-mod-tag" id="userModule">LP4</span>
           </div>
-          <i data-lucide="chevron-down" class="profile-chevron" style="width: 13px; height: 13px; color: var(--text-muted); margin-left: auto;"></i>
+          <i data-lucide="chevron-down" class="profile-chevron" style="width: 12px; height: 12px; color: var(--text-muted); margin-left: auto;"></i>
         </div>
 
-        <!-- Action Buttons -->
-        <div class="top-btn-group">
-          <button type="button" class="btn-icon-mini" id="btnOpenMonitoring" title="Monitoring Realtime Input MDS" style="background: var(--primary-light); color: var(--primary);">
-            <i data-lucide="bar-chart-3" style="width: 15px; height: 15px;"></i>
-          </button>
-          <button type="button" class="btn-icon-mini" id="btnOpenHelpTour" title="Panduan & Tutorial">
-            <i data-lucide="help-circle" style="width: 15px; height: 15px;"></i>
-          </button>
-          <button type="button" class="btn-icon-mini" id="btnThemeToggle" title="Ganti Tema">
-            <i data-lucide="moon" style="width: 15px; height: 15px;"></i>
-          </button>
-          <button type="button" class="btn-icon-mini" id="btnOpenHistory" title="Riwayat">
-            <i data-lucide="clock" style="width: 15px; height: 15px;"></i>
-          </button>
-          <button type="button" class="btn-icon-mini" id="btnOpenSettings" title="Pengaturan">
-            <i data-lucide="settings" style="width: 15px; height: 15px;"></i>
-          </button>
-        </div>
-      </header>
-
-      <!-- Row 2: Route Selector & Tab Switcher (Side-by-side & Spacious) -->
-      <div class="nav-control-row">
-        <!-- Route Selector Pill (DatePicker) -->
-        <div class="route-selector-pill" id="routeDatePickerWrapper" title="Klik untuk pilih tanggal rute di kalender">
-          <i data-lucide="calendar" style="width: 14px; height: 14px; color: var(--primary); flex-shrink: 0;"></i>
-          <span class="route-date-display" id="routeDateDisplay">Rute 2 (Hari Ini)</span>
-          <i data-lucide="chevron-down" style="width: 11px; height: 11px; color: var(--text-muted); margin-left: auto; flex-shrink: 0;"></i>
+        <!-- Route Selector Pill (Berdampingan dengan Profil) -->
+        <div class="route-selector-pill" id="routeDatePickerWrapper" title="Klik untuk pilih tanggal rute (Rute 1 - 31)">
+          <i data-lucide="calendar" style="width: 13px; height: 13px; color: var(--primary); flex-shrink: 0;"></i>
+          <span class="route-date-display" id="routeDateDisplay">Rute 4</span>
           <input type="date" id="ruteDatePicker" class="route-date-input" />
         </div>
 
-        <!-- Tab Switcher Pill -->
-        <nav class="tab-switcher-floating">
-          <button type="button" class="tab-btn-pill active" id="tabBtnInput" onclick="switchAppView('input')" title="Peta & Pilih Toko">
-            <i data-lucide="map" style="width: 13px; height: 13px;"></i>
-            <span>Peta</span>
+        <!-- Unified Action Menu FAB (Speed Dial Popover) -->
+        <div class="menu-fab-wrapper" id="menuFabWrapper">
+          <button type="button" class="btn-menu-fab" id="btnToggleMenuFab" title="Menu Aplikasi">
+            <i data-lucide="more-vertical" class="icon-fab-closed" style="width: 17px; height: 17px;"></i>
+            <i data-lucide="x" class="icon-fab-open" style="width: 17px; height: 17px; display: none;"></i>
           </button>
-          <button type="button" class="tab-btn-pill" id="tabBtnSchedule" onclick="switchAppView('schedule')" title="Jadwal Terinput">
-            <i data-lucide="calendar-check" style="width: 13px; height: 13px;"></i>
-            <span>Jadwal</span>
-          </button>
-        </nav>
-      </div>
+          
+          <!-- Popover / Speed-Dial Menu Panel -->
+          <div class="menu-fab-dropdown" id="menuFabDropdown">
+            <button type="button" class="menu-fab-item" id="btnOpenMonitoring">
+              <div class="menu-fab-icon" style="background: var(--primary-light); color: var(--primary);">
+                <i data-lucide="bar-chart-3" style="width: 15px; height: 15px;"></i>
+              </div>
+              <div class="menu-fab-text">
+                <span class="menu-fab-title">Monitoring Realtime</span>
+                <span class="menu-fab-desc">Rekap input & status MDS</span>
+              </div>
+            </button>
 
-      <!-- Floating Search & Filter Card (Mode Input) -->
+            <button type="button" class="menu-fab-item" id="btnOpenHistory">
+              <div class="menu-fab-icon" style="background: rgba(16, 185, 129, 0.12); color: var(--success);">
+                <i data-lucide="clock" style="width: 15px; height: 15px;"></i>
+              </div>
+              <div class="menu-fab-text">
+                <span class="menu-fab-title">Riwayat Input</span>
+                <span class="menu-fab-desc">Draft & log pengiriman</span>
+              </div>
+            </button>
+
+            <button type="button" class="menu-fab-item" id="btnThemeToggle">
+              <div class="menu-fab-icon" id="themeIconContainer" style="background: rgba(245, 158, 11, 0.12); color: var(--warning);">
+                <i data-lucide="moon" id="themeIcon" style="width: 15px; height: 15px;"></i>
+              </div>
+              <div class="menu-fab-text">
+                <span class="menu-fab-title" id="themeLabelText">Mode Gelap / Terang</span>
+                <span class="menu-fab-desc">Tema visual peta</span>
+              </div>
+            </button>
+
+            <button type="button" class="menu-fab-item" id="btnOpenHelpTour">
+              <div class="menu-fab-icon" style="background: rgba(59, 130, 246, 0.12); color: #3b82f6;">
+                <i data-lucide="help-circle" style="width: 15px; height: 15px;"></i>
+              </div>
+              <div class="menu-fab-text">
+                <span class="menu-fab-title">Panduan & Tutorial</span>
+                <span class="menu-fab-desc">Tur interaktif pemula</span>
+              </div>
+            </button>
+
+            <button type="button" class="menu-fab-item" id="btnOpenSettings">
+              <div class="menu-fab-icon" style="background: rgba(100, 116, 139, 0.12); color: var(--text-muted);">
+                <i data-lucide="settings" style="width: 15px; height: 15px;"></i>
+              </div>
+              <div class="menu-fab-text">
+                <span class="menu-fab-title">Pengaturan & Sync</span>
+                <span class="menu-fab-desc">Update master toko & crew</span>
+              </div>
+            </button>
+
+            <button type="button" class="menu-fab-item" id="btnInstallPwa">
+              <div class="menu-fab-icon" style="background: rgba(16, 185, 129, 0.15); color: #10b981;">
+                <i data-lucide="download" style="width: 15px; height: 15px;"></i>
+              </div>
+              <div class="menu-fab-text">
+                <span class="menu-fab-title">Install Aplikasi HP</span>
+                <span class="menu-fab-desc">Pasang di homescreen Android</span>
+              </div>
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <!-- Floating Search Bar & Filter Chips (Mode Input Rute) -->
       <div class="floating-search-card" id="floatingSearchCard">
         <div class="search-input-wrapper">
           <i data-lucide="search" class="search-icon" style="width: 16px; height: 16px;"></i>
@@ -112,31 +182,33 @@
             type="text" 
             id="searchInput" 
             class="search-input" 
-            placeholder="Cari toko (min. 4 karakter / kode / nama)..." 
+            placeholder="Cari nama toko, kode toko, kecamatan (min. 4 karakter)..." 
             autocomplete="off"
           >
-          <button type="button" id="searchClear" class="search-clear" title="Bersihkan">
+          <button type="button" class="search-clear" id="searchClear">
             <i data-lucide="x" style="width: 14px; height: 14px;"></i>
           </button>
         </div>
 
-        <!-- Brand Filter Pills & Custom Store Button -->
         <div style="display: flex; align-items: center; justify-content: space-between; gap: 6px;">
+          <!-- Brand Filter Pills -->
           <div class="filter-scroll" style="flex: 1;">
-            <div class="filter-pill active" data-account="ALL">Semua Akun</div>
-            <div class="filter-pill" data-account="INDOMARET">Indomaret</div>
-            <div class="filter-pill" data-account="ALFAMART">Alfamart</div>
-            <div class="filter-pill" data-account="ALFAMIDI">Alfamidi</div>
-            <div class="filter-pill" data-account="LAWSON">Lawson</div>
+            <button type="button" class="filter-pill active" data-account="ALL">Semua Akun</button>
+            <button type="button" class="filter-pill" data-account="INDOMARET">Indomaret</button>
+            <button type="button" class="filter-pill" data-account="ALFAMART">Alfamart</button>
+            <button type="button" class="filter-pill" data-account="ALFAMIDI">Alfamidi</button>
+            <button type="button" class="filter-pill" data-account="LAWSON">Lawson</button>
           </div>
-          <button type="button" class="btn-icon-mini" id="btnOpenCustomStore" title="Tambah / Edit Toko Manual" style="background: var(--primary-light); color: var(--primary); min-width: 30px;">
+
+          <!-- Tambah Toko Baru Manual Button -->
+          <button type="button" class="btn-icon-mini" id="btnOpenCustomStore" title="Tambah Toko Baru Manual" style="flex-shrink: 0; color: var(--primary); border-color: var(--primary);">
             <i data-lucide="plus-circle" style="width: 15px; height: 15px;"></i>
           </button>
         </div>
 
-        <!-- Search Results Drawer (Collapsible) -->
-        <div class="search-results-floating" id="searchResultsFloating">
-          <!-- Compact store cards injected here -->
+        <!-- Floating Search Results List Container -->
+        <div class="search-results-floating" id="searchResultsFloating" style="display: none;">
+          <!-- Results injected via Javascript -->
         </div>
       </div>
 
@@ -145,11 +217,11 @@
         <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
           <div>
             <div style="font-size: 13px; font-weight: 700; color: var(--text-main); display: flex; align-items: center; gap: 6px;">
-              <i data-lucide="map-pin" style="width: 14px; height: 14px; color: var(--primary);"></i>
-              <span id="scheduleViewTitle">Jadwal Rute 2</span>
+              <i data-lucide="calendar-check" style="width: 14px; height: 14px; color: var(--primary);"></i>
+              <span id="scheduleViewTitle">Jadwal Rute 4</span>
             </div>
             <div style="font-size: 11px; color: var(--text-muted); margin-top: 1px;">
-              Modul: <strong id="scheduleViewModule">LP4</strong> &bull; Total: <strong id="scheduleTotalStores">0 Toko</strong>
+              Total: <strong id="scheduleTotalStores">0 Toko</strong>
             </div>
           </div>
           <div style="display: flex; align-items: center; gap: 4px;">
@@ -164,6 +236,22 @@
               <span>Salin WA</span>
             </button>
           </div>
+        </div>
+
+        <!-- Row 2: MDS Crew Selector for Inspecting Schedules Read-Only -->
+        <div class="schedule-crew-selector-row">
+          <button type="button" class="btn-schedule-crew-picker" id="btnPickScheduleCrew" title="Klik untuk melihat jadwal rekan MDS lain">
+            <div class="crew-picker-avatar" id="scheduleCrewAvatar">YP</div>
+            <div class="crew-picker-info">
+              <span class="crew-picker-label" id="scheduleCrewLabel">Melihat Jadwal Saya:</span>
+              <span class="crew-picker-name" id="scheduleCrewName">Yohandi Pratama (LP4)</span>
+            </div>
+            <i data-lucide="chevron-down" style="width: 13px; height: 13px; color: var(--text-muted); margin-left: auto;"></i>
+          </button>
+          <button type="button" class="btn-reset-schedule-crew" id="btnResetScheduleCrew" title="Kembali ke Jadwal Saya" style="display: none;">
+            <i data-lucide="rotate-ccw" style="width: 12px; height: 12px;"></i>
+            <span>Jadwal Saya</span>
+          </button>
         </div>
 
         <!-- Schedule Items List (Collapsible / Toggleable) -->
@@ -215,13 +303,13 @@
     </div>
   </div>
 
-  <!-- MODAL: Edit Profile -->
+  <!-- MODAL 1: Edit Profil MDS Saya (Khusus tombol M) -->
   <div class="modal-backdrop" id="profileModal">
     <div class="modal-dialog">
       <div class="modal-header">
         <div class="modal-title">
-          <i data-lucide="user-check" style="color: var(--primary);"></i>
-          <span>Profil MDS</span>
+          <i data-lucide="user-pen" style="color: var(--primary);"></i>
+          <span>Edit Profil MDS Saya</span>
         </div>
         <button type="button" class="btn-icon-mini" onclick="document.getElementById('profileModal').classList.remove('active')">
           <i data-lucide="x" style="width: 16px; height: 16px;"></i>
@@ -229,28 +317,9 @@
       </div>
       <form id="profileForm">
         <div class="modal-body">
-          <div class="form-group">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-              <label class="form-label" style="margin-bottom: 0;">Cari & Pilih MDS dari Master Crew</label>
-              <button type="button" class="btn-icon-mini" id="btnSyncCrewModal" title="Tarik Data Crew Terbaru dari Google Sheet" onclick="manualRefreshCrewList()" style="width: 24px; height: 24px;">
-                <i data-lucide="refresh-cw" style="width: 13px; height: 13px; color: var(--primary);"></i>
-              </button>
-            </div>
-            <div class="search-input-wrapper" style="margin-bottom: 6px;">
-              <i data-lucide="search" class="search-icon" style="width: 15px; height: 15px;"></i>
-              <input 
-                type="text" 
-                id="crewSearchInput" 
-                class="search-input" 
-                placeholder="Ketik nama MDS, kode crew, atau modul..." 
-                autocomplete="off"
-              >
-            </div>
-            <div id="crewSearchResultsList" class="crew-search-results-list">
-              <div style="padding: 12px; text-align: center; color: var(--text-muted); font-size: 11px;">
-                Memuat daftar crew...
-              </div>
-            </div>
+          <div style="padding: 8px 10px; background: rgba(99, 102, 241, 0.08); border: 1px solid rgba(99, 102, 241, 0.2); border-radius: var(--radius-md); font-size: 11.5px; color: var(--text-main); margin-bottom: 12px; display: flex; align-items: center; gap: 6px;">
+            <i data-lucide="shield-alert" style="width: 15px; height: 15px; color: var(--primary); flex-shrink: 0;"></i>
+            <span>Form ini khusus untuk mengatur <strong>identitas akun Anda sendiri</strong>.</span>
           </div>
 
           <div class="form-group">
@@ -293,10 +362,97 @@
         <div class="modal-footer">
           <button type="submit" class="btn-primary" style="width: 100%;">
             <i data-lucide="save"></i>
-            <span>Simpan Profil</span>
+            <span>Simpan Profil Saya</span>
           </button>
         </div>
       </form>
+    </div>
+  </div>
+
+  <!-- MODAL 2: Cari & Pilih MDS dari Master Crew (Khusus tombol Dropdown Nama di Top Bar) -->
+  <div class="modal-backdrop" id="crewSelectModal">
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <div class="modal-title">
+          <i data-lucide="users" style="color: var(--primary);"></i>
+          <span>Pilih MDS dari Master Crew</span>
+        </div>
+        <button type="button" class="btn-icon-mini" onclick="document.getElementById('crewSelectModal').classList.remove('active')">
+          <i data-lucide="x" style="width: 16px; height: 16px;"></i>
+        </button>
+      </div>
+      <div class="modal-body">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+          <span style="font-size: 11px; color: var(--text-muted);">Pilih nama MDS untuk aktifkan rute & jadwalnya:</span>
+          <button type="button" class="btn-secondary" id="btnSyncCrewModal" title="Tarik Data Crew Terbaru dari Google Sheet" onclick="manualRefreshCrewList()" style="height: 26px; padding: 0 8px; font-size: 10.5px;">
+            <i data-lucide="refresh-cw" style="width: 11px; height: 11px;"></i>
+            <span>Tarik Master</span>
+          </button>
+        </div>
+
+        <div class="search-input-wrapper" style="margin-bottom: 8px;">
+          <i data-lucide="search" class="search-icon" style="width: 15px; height: 15px;"></i>
+          <input 
+            type="text" 
+            id="crewSearchInput" 
+            class="search-input" 
+            placeholder="Ketik nama MDS, kode crew, atau modul (DK, LK, LP)..." 
+            autocomplete="off"
+          >
+        </div>
+
+        <div id="crewSearchResultsList" class="crew-search-results-list" style="max-height: 260px;">
+          <div style="padding: 12px; text-align: center; color: var(--text-muted); font-size: 11px;">
+            Memuat daftar crew...
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn-secondary" onclick="document.getElementById('crewSelectModal').classList.remove('active')" style="width: 100%;">
+          <span>Tutup</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: Pilih MDS untuk Mode Lihat Jadwal (Read-Only) -->
+  <div class="modal-backdrop" id="scheduleCrewModal">
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <div class="modal-title">
+          <i data-lucide="users" style="color: var(--primary);"></i>
+          <span>Pilih MDS untuk Lihat Jadwal</span>
+        </div>
+        <button type="button" class="btn-icon-mini" onclick="document.getElementById('scheduleCrewModal').classList.remove('active')">
+          <i data-lucide="x" style="width: 16px; height: 16px;"></i>
+        </button>
+      </div>
+      <div class="modal-body">
+        <div style="padding: 8px 10px; background: rgba(59, 130, 246, 0.08); border: 1px solid rgba(59, 130, 246, 0.2); border-radius: var(--radius-md); font-size: 11.5px; color: var(--text-main); margin-bottom: 10px; display: flex; align-items: center; gap: 6px;">
+          <i data-lucide="shield-check" style="width: 15px; height: 15px; color: #3b82f6; flex-shrink: 0;"></i>
+          <span>Mode Lihat (Read-Only). Memilih MDS di sini <strong>TIDAK</strong> akan mengubah profil login akun Anda.</span>
+        </div>
+
+        <div class="search-input-wrapper" style="margin-bottom: 8px;">
+          <i data-lucide="search" class="search-icon" style="width: 15px; height: 15px;"></i>
+          <input 
+            type="text" 
+            id="scheduleCrewSearchInput" 
+            class="search-input" 
+            placeholder="Cari nama MDS, kode crew, atau modul (DK, LK, LP)..." 
+            autocomplete="off"
+          >
+        </div>
+
+        <div id="scheduleCrewSearchResultsList" class="crew-search-results-list" style="max-height: 240px;">
+          <!-- List of crews injected here -->
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn-secondary" onclick="document.getElementById('scheduleCrewModal').classList.remove('active')" style="width: 100%;">
+          <span>Tutup</span>
+        </button>
+      </div>
     </div>
   </div>
 
@@ -314,6 +470,15 @@
       </div>
       <form id="customStoreForm">
         <div class="modal-body">
+          <!-- Info Banner Ramah Pengguna -->
+          <div style="padding: 10px 12px; background: rgba(59, 130, 246, 0.08); border: 1px solid rgba(59, 130, 246, 0.25); border-radius: var(--radius-md); font-size: 11.5px; color: var(--text-main); margin-bottom: 12px; display: flex; align-items: flex-start; gap: 8px; line-height: 1.45;">
+            <i data-lucide="info" style="width: 16px; height: 16px; color: #3b82f6; flex-shrink: 0; margin-top: 1px;"></i>
+            <div>
+              <strong style="color: #2563eb;">Bisa input dari mana saja & kapan saja!</strong><br>
+              Cukup isi <strong>Akun, Kode Toko & Nama Toko</strong>. Titik GPS & alamat bersifat <em>opsional (boleh dikosongkan)</em> dan bisa dilengkapi nanti saat kunjungan.
+            </div>
+          </div>
+
           <div class="form-group">
             <label class="form-label">Akun / Jaringan Toko *</label>
             <select class="form-control" id="customStoreAccount" required>
@@ -338,26 +503,26 @@
 
           <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
             <div class="form-group">
-              <label class="form-label">Kota / Wilayah</label>
+              <label class="form-label">Kota / Wilayah <span style="font-size: 10px; color: var(--text-muted); font-weight: normal;">(Opsional)</span></label>
               <input type="text" class="form-control" id="customStoreCity" placeholder="Contoh: KOTA CILEGON">
             </div>
             <div class="form-group">
-              <label class="form-label">Kecamatan</label>
+              <label class="form-label">Kecamatan <span style="font-size: 10px; color: var(--text-muted); font-weight: normal;">(Opsional)</span></label>
               <input type="text" class="form-control" id="customStoreDistrict" placeholder="Contoh: PULOMERAK">
             </div>
           </div>
 
           <div class="form-group">
             <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 2px;">
-              <label class="form-label">Koordinat GPS (Lat & Lon)</label>
-              <button type="button" class="btn-edit-profile" id="btnUseCurrentGps" style="padding: 2px 6px; font-size: 11px;">
+              <label class="form-label">Koordinat GPS <span style="font-size: 10px; color: var(--text-muted); font-weight: normal;">(Opsional)</span></label>
+              <button type="button" class="btn-edit-profile" id="btnUseCurrentGps" style="padding: 2px 6px; font-size: 11px;" title="Jika sedang di depan toko, klik untuk ambil GPS otomatis">
                 <i data-lucide="crosshair" style="width: 12px; height: 12px;"></i>
                 <span>Gunakan Lokasi GPS Saya</span>
               </button>
             </div>
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
-              <input type="text" class="form-control" id="customStoreLat" placeholder="Latitude (mis: -6.2088)">
-              <input type="text" class="form-control" id="customStoreLon" placeholder="Longitude (mis: 106.8456)">
+              <input type="text" class="form-control" id="customStoreLat" placeholder="Latitude (Boleh kosong)">
+              <input type="text" class="form-control" id="customStoreLon" placeholder="Longitude (Boleh kosong)">
             </div>
           </div>
 
@@ -435,7 +600,7 @@
       <div class="modal-body">
         <div class="form-group">
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
-            <label class="form-label" style="margin-bottom: 0;">Database Master Toko & GIS</label>
+            <label class="form-label" style="margin-bottom: 0;">Database Master Toko & Rute</label>
             <span id="dbStatusBadge" style="font-size: 11px; font-weight: 700; color: var(--primary);">Memuat data...</span>
           </div>
           <p style="font-size: 11px; color: var(--text-muted); margin-bottom: 8px;" id="dbLastSyncText">
@@ -457,6 +622,19 @@
           <button type="button" class="btn-secondary" id="btnHardRefreshMobile" style="justify-content: center; width: 100%; border-color: var(--primary); color: var(--primary); font-weight: 600;">
             <i data-lucide="zap"></i>
             <span>⚡ Hard Refresh & Bersihkan Cache HP</span>
+          </button>
+        </div>
+
+        <hr style="border: none; border-top: 1px solid var(--border); margin: 6px 0;">
+
+        <div class="form-group" id="pwaInstallGroup">
+          <label class="form-label">Pasang Aplikasi ke Layar Utama (PWA)</label>
+          <p style="font-size: 11px; color: var(--text-muted); margin-bottom: 8px;">
+            Buka cepat aplikasi tanpa bilah URL browser layaknya aplikasi Android asli.
+          </p>
+          <button type="button" class="btn-primary" id="btnSettingsInstallPwa" style="justify-content: center; width: 100%; font-weight: 700;">
+            <i data-lucide="download"></i>
+            <span>📲 Install Aplikasi ke HP</span>
           </button>
         </div>
       </div>
@@ -672,10 +850,83 @@
           </div>
         </div>
 
+        <!-- Panduan Beda Refresh, Sync Toko & Hapus Cache -->
+        <div>
+          <h4 style="font-size: 12px; text-transform: uppercase; color: var(--text-muted); font-weight: 800; letter-spacing: 0.5px; margin-bottom: 8px;">
+            💡 Beda Refresh Jadwal, Sync Toko & Hapus Cache
+          </h4>
+          <div style="display: flex; flex-direction: column; gap: 6px;">
+            <div style="padding: 8px 10px; background: var(--bg-main); border: 1px solid var(--border); border-radius: var(--radius-sm); font-size: 11.5px; line-height: 1.4;">
+              <strong style="color: var(--primary);">🔄 Refresh Jadwal (Di Tab Jadwal):</strong> Untuk memuat ulang kunjungan rute hari ini dari Google Sheet jika baru input dari HP lain.
+            </div>
+            <div style="padding: 8px 10px; background: var(--bg-main); border: 1px solid var(--border); border-radius: var(--radius-sm); font-size: 11.5px; line-height: 1.4;">
+              <strong style="color: #6366f1;">📦 Sync Master Toko (Di Pengaturan):</strong> Untuk mengunduh ulang seluruh database master toko terbaru dari Google Sheet pusat ke HP.
+            </div>
+            <div style="padding: 8px 10px; background: var(--bg-main); border: 1px solid var(--border); border-radius: var(--radius-sm); font-size: 11.5px; line-height: 1.4;">
+              <strong style="color: var(--warning);">⚡ Hapus Cache HP (Di Pengaturan):</strong> Untuk membersihkan memori browser HP jika aplikasi terasa lemot, macet, atau belum update.
+            </div>
+          </div>
+        </div>
+
       </div>
       <div class="modal-footer">
         <button type="button" class="btn-secondary" onclick="document.getElementById('helpModal').classList.remove('active')" style="width: 100%;">
           <span>Tutup Panduan</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- CUSTOM MODERN CONFIRM / ALERT DIALOG MODAL -->
+  <div class="modal-backdrop" id="customConfirmModal" style="z-index: 99999;">
+    <div class="modal-dialog modal-dialog-confirm" style="max-width: 360px; text-align: center; padding: 24px 20px;">
+      <div id="confirmIconContainer" class="confirm-icon-box warning">
+        <i data-lucide="alert-triangle" id="confirmIcon" style="width: 26px; height: 26px;"></i>
+      </div>
+      <h3 id="confirmTitle" style="font-size: 16px; font-weight: 800; color: var(--text-main); margin: 10px 0 6px 0;">Konfirmasi</h3>
+      <div id="confirmMessage" style="font-size: 12.5px; color: var(--text-muted); line-height: 1.5; margin-bottom: 20px; white-space: pre-line;">
+        Apakah Anda yakin ingin melanjutkan tindakan ini?
+      </div>
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;" id="confirmActionButtons">
+        <button type="button" class="btn-secondary" id="btnConfirmCancel" style="height: 38px; font-size: 12.5px; font-weight: 700; justify-content: center;">
+          <span>Batal</span>
+        </button>
+        <button type="button" class="btn-primary" id="btnConfirmOk" style="height: 38px; font-size: 12.5px; font-weight: 700; justify-content: center;">
+          <span id="confirmOkText">Ya, Lanjutkan</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- PWA INSTALL MANDATORY / ENFORCEMENT MODAL -->
+  <div class="modal-backdrop" id="pwaInstallGateModal" style="z-index: 99990;">
+    <div class="modal-dialog" style="max-width: 380px; text-align: center; padding: 24px 18px;">
+      <div style="width: 76px; height: 76px; margin: 0 auto 12px auto; border-radius: 20px; overflow: hidden; box-shadow: 0 8px 24px rgba(79, 70, 229, 0.35); border: 2px solid rgba(255,255,255,0.2);">
+        <img src="icons/icon-192.png" alt="Retail Ops" style="width: 100%; height: 100%; object-fit: cover; display: block;">
+      </div>
+      <h3 style="font-size: 17px; font-weight: 800; color: var(--text-main); margin-bottom: 6px;">Pasang Retail Ops ke HP</h3>
+      <p style="font-size: 12px; color: var(--text-muted); line-height: 1.45; margin-bottom: 14px;">
+        Wajib dipasang ke layar utama HP Anda agar <strong>tidak hilang / tertutup tanpa sengaja</strong> dan tidak perlu meminta link web lagi setiap hari!
+      </p>
+
+      <div style="background: var(--bg-main); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 12px; text-align: left; margin-bottom: 16px; font-size: 11.5px; line-height: 1.45;">
+        <div style="font-weight: 700; color: var(--text-main); margin-bottom: 6px; display: flex; align-items: center; gap: 6px;">
+          <i data-lucide="smartphone" style="width: 15px; height: 15px; color: var(--primary);"></i>
+          <span>Cara Pasang di HP Android:</span>
+        </div>
+        <div style="color: var(--text-muted);">
+          1. Klik tombol <strong>"📲 Install Aplikasi Sekarang"</strong> di bawah.<br>
+          2. Atau buka menu titik-3 <strong>(⋮)</strong> di Chrome Android kanan atas ➔ pilih <strong>"Tambahkan ke Layar Utama" / "Install Aplikasi"</strong>.
+        </div>
+      </div>
+
+      <div style="display: flex; flex-direction: column; gap: 8px;">
+        <button type="button" class="btn-primary" id="btnGateInstallNow" style="height: 42px; font-size: 13.5px; font-weight: 800; justify-content: center; width: 100%;">
+          <i data-lucide="download" style="width: 17px; height: 17px;"></i>
+          <span>📲 Install Aplikasi Sekarang</span>
+        </button>
+        <button type="button" class="btn-secondary" id="btnGateDismiss" style="height: 36px; font-size: 11.5px; justify-content: center; width: 100%; color: var(--text-muted);">
+          <span>Buka di Browser (Sementara)</span>
         </button>
       </div>
     </div>
