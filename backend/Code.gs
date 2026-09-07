@@ -1,75 +1,15 @@
-/**
- * GOOGLE APPS SCRIPT - BACKEND API WEB ABSEN MDS
- * 
- * Script ini menangani:
- * 1. Menerima data rute yang diinput MDS dari Web Absen
- * 2. Menuliskan data secara otomatis ke 3 Target Spreadsheet:
- *    - Spreadsheet Modul (DK1..DK6, LK1..LK5, LP1..LP4) -> Sheet 'Master_Toko'
- *    - Spreadsheet Data External -> Sheet 'Master_Toko2'
- *    - Spreadsheet Absen -> Sheet 'Toko_Absen'
- * 3. Menyediakan sinkronisasi data master toko & crew
- */
-
-// ==========================================
-// KONFIGURASI ID SPREADSHEET
-// ==========================================
 const CONFIG = {
-  // Master Spreadsheet Utama (Crew & Master Toko 34k)
   MASTER_DATABASE_ID: "16cokFfnQFIajmTd553TKy-CfkNFc1Gg7ElkhAer81QA",
-
-  // Modul DK (DK1 - DK6)
-  DK: {
-    MODULES: {
-      "DK1": "1asDdjDm0kUfFmICLtkhJ5VBhmKUels2c-H8Cd22qYvk",
-      "DK2": "14d0LUW73TveimrVC5QZ5Aq8fanWFTa-endNTq5UgxU0",
-      "DK3": "1PyP2gDOltePqcadtcOzncjb8vYpqlYcUu31N_JYu_gQ",
-      "DK4": "1jiN7bi-Uc104X5Ug2p2hYlI163h-ycQ8hEqHyt4zoKw",
-      "DK5": "1QWf1cG5byneFDGmy_m2eUe_aUUUtztBc8ERgfGjjmb4",
-      "DK6": "1VV6E_MuBUNgQMopvTezXDRlHpa6Z1fKfHOlew--cPBY"
-    },
-    ABSEN_ID: "1A-Z_cGLRuB3_2D3_ZDF_z5Q9zoLJlwarV0pDyu69-cY",
-    EXTERNAL_ID: "1xQWISX8v_NGaCbw5Ih7uOe8mTZF-nR0x5UvoZS5Up40"
-  },
-
-  // Modul LK (LK1 - LK5)
-  LK: {
-    MODULES: {
-      "LK1": "1LdoLka5rw1m8fuhOhYqvs6v0hgbY766sdlVj_JcMrb4",
-      "LK2": "1LjRvlTow7wcLDJHipCw-H2mdn5Wh7YuwBf7Ab5kN1BM",
-      "LK3": "1EuxP8f8D4Vya5kdN1_0QVCDP1dPvAkrMKErnRCO4jJM",
-      "LK4": "1GRuXwLgO_zsuW6Ai49h9w1QTFxM_TQVxBs6xWKpqEhY",
-      "LK5": "1GyTFOp8siIXfLpUmEv935hZ0976-fXqXgiwz5Juq92A"
-    },
-    ABSEN_ID: "1CPBD6M_C15_oYnegBG_dz1xb5eGUXR6USkNUnUvkZ2s",
-    EXTERNAL_ID: "1V7bkEA6_-lzeu4pSAiHR9kHr0a2TLAZp4mt-ttxRyMU"
-  },
-
-  // Modul LP (LP1 - LP4)
-  LP: {
-    MODULES: {
-      "LP1": "1356ZShL_ZQaO0pwI7msWcQmINpyKCxhizMzt8c5cKpo",
-      "LP2": "1Dy6Zb6e9eWLOuLcWaUiKYWpIuv2mpz-leGJwiJu20Ss",
-      "LP3": "1S__W_tKymV2xwqx_-vthpPt5jn5u7t3ePlgPqM1opMM",
-      "LP4": "1kUWJIQxtSkjebZMualR2bIV6HyGxp-baDVz1s-7KspU"
-    },
-    ABSEN_ID: "15xkzv8Q2ZIuPH4P1KzlILKWMsl2i4VkuAE9WD3IDR4Q",
-    EXTERNAL_ID: "1FWBdjYAbKSDz8Dk-mcmpv_z6AuJC9BMfUUNe4_ISfo0"
-  }
+  UNIFIED_PIPELINE_ID: "1XqZgR70C1eqfkkKbM9jO2FhSi6-g3I9AskuhsSh7Mzs"
 };
 
-// Nama Sheet Standar
 const SHEET_NAMES = {
-  MASTER_DATABASE_TOKO: "master_toko", // Tab 34k database toko di Master Spreadsheet
-  CREW: "master_user",                 // Tab Master User di Master Spreadsheet
-  REKAP: "Rekap_Rute",                 // Tab Rekap Global di Master Spreadsheet
-  MODULE_MASTER: "Master_Toko",        // Tab Output Toko di Spreadsheet Modul (DK, LK, LP)
-  EXTERNAL_MASTER: "Master_Toko2",     // Tab Output di Spreadsheet Data External
-  ABSEN: "Toko_Absen"                  // Tab Output di Spreadsheet Absen
+  MASTER_DATABASE_TOKO: "master_toko",
+  CREW: "master_user",
+  REKAP: "Rekap_Rute",
+  TARGET_ROUTE_SHEET: "Master_Toko"
 };
 
-/**
- * Handle HTTP GET Request (Health check & Data Sync)
- */
 function doGet(e) {
   try {
     const action = e && e.parameter ? e.parameter.action : "ping";
@@ -109,8 +49,7 @@ function doGet(e) {
     }
 
     if (action === "get_claimed_stores") {
-      // Scan semua modul (DK, LK, LP) untuk cari toko yang sudah diklaim MDS manapun
-      const ruteParam = e.parameter.rute; // optional - filter per rute
+      const ruteParam = e.parameter.rute;
       const claimed = fetchAllClaimedStores(ruteParam);
       return jsonResponse({
         status: "success",
@@ -120,7 +59,6 @@ function doGet(e) {
     }
 
     if (action === "get_monitoring_status" || action === "get_mds_input_status") {
-      // Real-time tracking siapa saja MDS yang sudah vs belum input rute hari berjalan
       const ruteParam = e.parameter.rute;
       const monitoringData = fetchMdsInputStatus(ruteParam);
       return jsonResponse({
@@ -141,9 +79,6 @@ function doGet(e) {
   }
 }
 
-/**
- * Handle HTTP POST Request (Menerima Penginputan Rute)
- */
 function doPost(e) {
   try {
     let payload;
@@ -155,7 +90,6 @@ function doPost(e) {
       throw new Error("Payload kosong atau format tidak valid");
     }
 
-    // Aksi 1: Sinkronisasi Tambah / Edit Toko Manual Langsung ke Master Spreadsheet
     if (payload.action === "save_store" || payload.action === "save_custom_store") {
       const storeData = payload.store || payload;
       const res = saveOrUpdateMasterStore(storeData);
@@ -166,7 +100,6 @@ function doPost(e) {
       });
     }
 
-    // Aksi 2: Sinkronisasi Tambah / Edit Crew User Langsung ke Master Spreadsheet
     if (payload.action === "save_crew" || payload.action === "save_user") {
       const crewData = payload.crew || payload;
       const res = saveOrUpdateMasterCrew(crewData);
@@ -177,7 +110,6 @@ function doPost(e) {
       });
     }
 
-    // Aksi 3: Hapus 1 Toko dari Jadwal di Google Spreadsheet
     if (payload.action === "delete_scheduled_store" || payload.action === "delete_store_schedule") {
       const { module, rute, crewCode, kodeToko } = payload;
       const res = deleteStoreFromAllSpreadsheets(module, rute, crewCode, kodeToko);
@@ -188,78 +120,26 @@ function doPost(e) {
       });
     }
 
-    // Aksi 4: Penginputan Rute Absen (Distribusi ke 4 Spreadsheet)
     const { module, crewCode, crewName, rute, stores } = payload;
 
     if (!module || !crewName || !rute || !stores || !stores.length) {
       throw new Error("Data input tidak lengkap. Harap periksa modul, crew, rute, dan daftar toko.");
     }
 
-    // Normalisasi format modul (Contoh: "LP 4" atau "LP4" -> "LP4", group "LP")
     const cleanModule = module.toUpperCase().replace(/\s+/g, "");
-    const groupKey = cleanModule.substring(0, 2); // "DK", "LK", atau "LP"
-
-    const groupConfig = CONFIG[groupKey];
-    if (!groupConfig) {
-      throw new Error(`Kategori modul '${groupKey}' tidak ditemukan dalam konfigurasi`);
-    }
-
-    const moduleSpreadsheetId = groupConfig.MODULES[cleanModule];
-    if (!moduleSpreadsheetId) {
-      throw new Error(`Spreadsheet untuk sub-modul '${cleanModule}' tidak ditemukan`);
-    }
-
-    const externalSpreadsheetId = groupConfig.EXTERNAL_ID;
-    const absenSpreadsheetId = groupConfig.ABSEN_ID;
-
-    // Siapkan baris data dengan format:
-    // ACCOUNT | KODE TOKO | NAMA TOKO | KODE CREW | NAMA CREW | RUTE
-    const rowsToAdd = stores.map(store => {
-      return [
-        (store.account || "").toString().trim().toUpperCase(),
-        (store.kodeToko || store.kode || "").toString().trim(),
-        (store.namaToko || store.nama || "").toString().trim(),
-        (crewCode || "").toString().trim(),
-        (crewName || "").toString().trim(),
-        rute.toString().trim()
-      ];
-    });
 
     const results = {
-      moduleTarget: { success: false, name: cleanModule, count: 0 },
-      externalTarget: { success: false, name: "Data External (" + groupKey + ")", count: 0 },
-      absenTarget: { success: false, name: "Toko Absen (" + groupKey + ")", count: 0 }
+      pipelineTarget: { success: false, name: `Unified Pipeline (${SHEET_NAMES.TARGET_ROUTE_SHEET})`, count: 0 }
     };
 
-    // 1. Tulis ke Spreadsheet Modul (Sheet: Master_Toko)
     try {
-      appendRowsToSheet(moduleSpreadsheetId, SHEET_NAMES.MODULE_MASTER, rowsToAdd);
-      results.moduleTarget.success = true;
-      results.moduleTarget.count = rowsToAdd.length;
+      const appendedCount = appendRouteToUnifiedPipeline(cleanModule, crewCode, crewName, rute, stores);
+      results.pipelineTarget.success = true;
+      results.pipelineTarget.count = appendedCount;
     } catch (err) {
-      results.moduleTarget.error = err.toString();
+      results.pipelineTarget.error = err.toString();
     }
 
-    // 2. Tulis ke Spreadsheet Data External (Sheet: Master_Toko2)
-    try {
-      appendRowsToSheet(externalSpreadsheetId, SHEET_NAMES.EXTERNAL_MASTER, rowsToAdd);
-      results.externalTarget.success = true;
-      results.externalTarget.count = rowsToAdd.length;
-    } catch (err) {
-      results.externalTarget.error = err.toString();
-    }
-
-    // 3. Tulis ke Spreadsheet Toko Absen (Sheet: Toko_Absen)
-    try {
-      appendRowsToSheet(absenSpreadsheetId, SHEET_NAMES.ABSEN, rowsToAdd);
-      results.absenTarget.success = true;
-      results.absenTarget.count = rowsToAdd.length;
-    } catch (err) {
-      results.absenTarget.error = err.toString();
-    }
-
-    // 4. Tulis Rekap Global ke Master Spreadsheet (Sheet: Rekap_Rute)
-    // Lengkap dengan Status Kunjungan (Kunjungan Pertama / Re-Visit) & Alasan Re-Visit
     const nowFormatted = Utilities.formatDate(new Date(), "Asia/Jakarta", "yyyy-MM-dd HH:mm:ss");
     const rekapRows = stores.map(store => {
       const statusKunjungan = store.statusKunjungan || (store.isRevisit ? "Re-Visit" : "Kunjungan Pertama");
@@ -287,7 +167,7 @@ function doPost(e) {
 
     return jsonResponse({
       status: "success",
-      message: `Berhasil menginput ${rowsToAdd.length} toko ke Rute ${rute} untuk ${crewName} (${cleanModule})`,
+      message: `Berhasil menginput ${stores.length} toko ke Rute ${rute} untuk ${crewName} (${cleanModule}) [1 Pintu]`,
       timestamp: new Date().toISOString(),
       details: results
     });
@@ -300,37 +180,73 @@ function doPost(e) {
   }
 }
 
-/**
- * Helper untuk append baris ke sheet tertentu
- */
-function appendRowsToSheet(spreadsheetId, sheetName, rows) {
-  const ss = SpreadsheetApp.openById(spreadsheetId);
-  let sheet = ss.getSheetByName(sheetName);
-  
-  if (!sheet) {
-    // Jika nama sheet tidak persis sama, gunakan sheet pertama
-    sheet = ss.getSheets()[0];
+function appendRouteToUnifiedPipeline(moduleName, crewCode, crewName, rute, stores) {
+  const ss = SpreadsheetApp.openById(CONFIG.UNIFIED_PIPELINE_ID);
+  let sheet = ss.getSheetByName(SHEET_NAMES.TARGET_ROUTE_SHEET) || ss.getSheets()[0];
+
+  const values = sheet.getDataRange().getValues();
+  let headers = [];
+  if (values.length > 0) {
+    headers = values[0].map(h => (h || "").toString().toLowerCase().replace(/[^a-z0-9]/g, ""));
   }
+
+  const modIdx = headers.findIndex(h => h.includes("modul") || h.includes("module"));
+  const accIdx = headers.findIndex(h => h.includes("account") || h.includes("tipe") || h.includes("type"));
+  const codeIdx = headers.findIndex(h => h.includes("kodetoko") || h.includes("storecode") || h === "code" || h.includes("kode"));
+  const nameIdx = headers.findIndex(h => h.includes("namatoko") || h.includes("storename") || h.includes("nama"));
+  const crewCodeIdx = headers.findIndex(h => h.includes("kodecrew") || h.includes("crewcode") || h.includes("idcrew"));
+  const crewNameIdx = headers.findIndex(h => h.includes("namacrew") || h.includes("crewname") || (h.includes("crew") && !h.includes("kode")));
+  const ruteIdx = headers.findIndex(h => h.includes("rute") || h.includes("route"));
+
+  const rowsToAppend = stores.map(store => {
+    const account = (store.account || "ALFAMART").toString().trim().toUpperCase();
+    const kode = (store.kodeToko || store.kode || "").toString().trim().toUpperCase();
+    const nama = (store.namaToko || store.nama || "").toString().trim();
+    const cleanRute = rute.toString().trim();
+    const cleanCrewCode = (crewCode || "").toString().trim();
+    const cleanCrewName = (crewName || "").toString().trim();
+
+    if (headers.length >= 6) {
+      const numCols = Math.max(headers.length, 7);
+      const row = new Array(numCols).fill("");
+
+      if (modIdx >= 0) row[modIdx] = moduleName;
+      if (accIdx >= 0) row[accIdx] = account;
+      if (codeIdx >= 0) row[codeIdx] = kode;
+      if (nameIdx >= 0) row[nameIdx] = nama;
+      if (crewCodeIdx >= 0) row[crewCodeIdx] = cleanCrewCode;
+      if (crewNameIdx >= 0) row[crewNameIdx] = cleanCrewName;
+      if (ruteIdx >= 0) row[ruteIdx] = cleanRute;
+
+      return row;
+    } else {
+      return [
+        moduleName,
+        account,
+        kode,
+        nama,
+        cleanCrewCode,
+        cleanCrewName,
+        cleanRute
+      ];
+    }
+  });
 
   const lastRow = sheet.getLastRow();
   const startRow = lastRow + 1;
-  const numRows = rows.length;
-  const numCols = rows[0].length;
+  const numRows = rowsToAppend.length;
+  const numCols = rowsToAppend[0].length;
 
-  sheet.getRange(startRow, 1, numRows, numCols).setValues(rows);
+  sheet.getRange(startRow, 1, numRows, numCols).setValues(rowsToAppend);
+  return numRows;
 }
 
-/**
- * Helper untuk append rekap ke Sheet 'Rekap_Rute' di Master Database
- * Jika sheet belum ada, otomatis dibuatkan dan diberi baris header lengkap!
- */
 function appendRekapToMasterDatabase(rows) {
   const ss = SpreadsheetApp.openById(CONFIG.MASTER_DATABASE_ID);
   const sheetName = "Rekap_Rute";
   let sheet = ss.getSheetByName(sheetName);
 
   if (!sheet) {
-    // Otomatis buat tab sheet baru jika belum ada
     sheet = ss.insertSheet(sheetName);
     const headers = [
       ["ACCOUNT", "KODE TOKO", "NAMA TOKO", "KODE CREW", "NAMA CREW", "RUTE", "MODUL", "STATUS KUNJUNGAN", "ALASAN RE-VISIT", "WAKTU INPUT"]
@@ -350,9 +266,6 @@ function appendRekapToMasterDatabase(rows) {
   sheet.getRange(startRow, 1, numRows, numCols).setValues(rows);
 }
 
-/**
- * Sinkronisasi Tambah / Edit Toko ke Master Spreadsheet (Sheet: Master_Toko)
- */
 function saveOrUpdateMasterStore(store) {
   const ss = SpreadsheetApp.openById(CONFIG.MASTER_DATABASE_ID);
   const sheet = ss.getSheetByName(SHEET_NAMES.MASTER_DATABASE_TOKO) || ss.getSheetByName("master_toko") || ss.getSheetByName("Master_Toko") || ss.getSheets()[0];
@@ -384,7 +297,7 @@ function saveOrUpdateMasterStore(store) {
   for (let i = 1; i < values.length; i++) {
     const rowCode = (values[i][cIdx] || "").toString().trim().toUpperCase();
     if (rowCode === kodeTarget) {
-      existingRowIndex = i + 1; // 1-based index in Sheet
+      existingRowIndex = i + 1;
       break;
     }
   }
@@ -398,7 +311,6 @@ function saveOrUpdateMasterStore(store) {
   const lon = store.lon !== null && store.lon !== undefined ? store.lon.toString().replace(".", ",") : "";
 
   if (existingRowIndex > 0) {
-    // Update existing row
     if (nIdx >= 0 && namaToko) sheet.getRange(existingRowIndex, nIdx + 1).setValue(namaToko);
     if (tIdx >= 0 && account) sheet.getRange(existingRowIndex, tIdx + 1).setValue(account);
     if (dIdx >= 0 && dcName) sheet.getRange(existingRowIndex, dIdx + 1).setValue(dcName);
@@ -408,7 +320,6 @@ function saveOrUpdateMasterStore(store) {
     if (lnIdx >= 0 && lon) sheet.getRange(existingRowIndex, lnIdx + 1).setValue(lon);
     return { action: "updated", row: existingRowIndex };
   } else {
-    // Append new row
     const maxCols = Math.max(cIdx, nIdx, tIdx, dIdx, kIdx, ktIdx, ltIdx, lnIdx) + 1;
     const newRow = new Array(maxCols).fill("");
     newRow[cIdx] = kodeTarget;
@@ -425,9 +336,6 @@ function saveOrUpdateMasterStore(store) {
   }
 }
 
-/**
- * Sinkronisasi Tambah / Edit Crew ke Master Spreadsheet (Sheet: master_user)
- */
 function saveOrUpdateMasterCrew(crew) {
   const ss = SpreadsheetApp.openById(CONFIG.MASTER_DATABASE_ID);
   const sheet = ss.getSheetByName("master_user") || ss.getSheetByName("Master_User") || ss.getSheets()[0];
@@ -446,19 +354,17 @@ function saveOrUpdateMasterCrew(crew) {
     const rowId = (values[i][0] || "").toString().trim();
     const rowNama = (values[i][1] || "").toString().trim();
     if ((idTarget && rowId === idTarget) || (namaTarget && rowNama.toLowerCase() === namaTarget.toLowerCase())) {
-      existingRowIndex = i + 1; // 1-based index in Sheet
+      existingRowIndex = i + 1;
       break;
     }
   }
 
   if (existingRowIndex > 0) {
-    // Update data crew yang sudah ada
     if (idTarget) sheet.getRange(existingRowIndex, 1).setValue(idTarget);
     sheet.getRange(existingRowIndex, 2).setValue(namaTarget);
-    sheet.getRange(existingRowIndex, 8).setValue(modul); // Kolom 8: MODUL
+    sheet.getRange(existingRowIndex, 8).setValue(modul);
     return { action: "updated", row: existingRowIndex };
   } else {
-    // Append baris crew baru di master_user: ID, NAMA, JABATAN, DIVISI, ACCOUNT, EMAIL, ROLE, MODUL
     const newRow = [
       idTarget || `MDS_${Date.now().toString().slice(-4)}`,
       namaTarget,
@@ -474,12 +380,9 @@ function saveOrUpdateMasterCrew(crew) {
   }
 }
 
-/**
- * Helper untuk membaca daftar crew dari master database
- */
 function fetchCrewList() {
   const ss = SpreadsheetApp.openById(CONFIG.MASTER_DATABASE_ID);
-  const sheet = ss.getSheets()[0]; // Sheet pertama berisi data crew
+  const sheet = ss.getSheets()[0];
   const values = sheet.getDataRange().getValues();
   
   if (values.length < 2) return [];
@@ -507,50 +410,59 @@ function fetchCrewList() {
   return crewList;
 }
 
-/**
- * Helper untuk membaca jadwal toko yang sudah diinput pada modul tertentu
- */
 function fetchModuleSchedule(moduleName, ruteFilter, crewCodeFilter) {
-  const cleanModule = moduleName.toUpperCase().replace(/\s+/g, "");
-  const groupKey = cleanModule.substring(0, 2);
+  const cleanModule = (moduleName || "").toUpperCase().replace(/\s+/g, "");
 
-  const groupConfig = CONFIG[groupKey];
-  if (!groupConfig || !groupConfig.MODULES[cleanModule]) {
-    throw new Error(`Modul '${cleanModule}' tidak ditemukan`);
-  }
-
-  const spreadsheetId = groupConfig.MODULES[cleanModule];
-  const ss = SpreadsheetApp.openById(spreadsheetId);
-  const sheet = ss.getSheetByName(SHEET_NAMES.MODULE_MASTER) || ss.getSheets()[0];
+  const ss = SpreadsheetApp.openById(CONFIG.UNIFIED_PIPELINE_ID);
+  const sheet = ss.getSheetByName(SHEET_NAMES.TARGET_ROUTE_SHEET) || ss.getSheets()[0];
   const values = sheet.getDataRange().getValues();
 
   if (values.length < 2) return [];
 
-  // Format kolom standar:
-  // 0: ACCOUNT | 1: KODE TOKO | 2: NAMA TOKO | 3: KODE CREW | 4: NAMA CREW | 5: RUTE
+  const headers = values[0].map(h => (h || "").toString().toLowerCase().replace(/[^a-z0-9]/g, ""));
+  const modIdx = headers.findIndex(h => h.includes("modul") || h.includes("module"));
+  const accIdx = headers.findIndex(h => h.includes("account") || h.includes("tipe") || h.includes("type"));
+  const codeIdx = headers.findIndex(h => h.includes("kodetoko") || h.includes("storecode") || h === "code" || h.includes("kode"));
+  const nameIdx = headers.findIndex(h => h.includes("namatoko") || h.includes("storename") || h.includes("nama"));
+  const crewCodeIdx = headers.findIndex(h => h.includes("kodecrew") || h.includes("crewcode") || h.includes("idcrew"));
+  const crewNameIdx = headers.findIndex(h => h.includes("namacrew") || h.includes("crewname") || (h.includes("crew") && !h.includes("kode")));
+  const ruteIdx = headers.findIndex(h => h.includes("rute") || h.includes("route"));
+
+  const cMod = modIdx >= 0 ? modIdx : 0;
+  const cAcc = accIdx >= 0 ? accIdx : 1;
+  const cCode = codeIdx >= 0 ? codeIdx : 2;
+  const cName = nameIdx >= 0 ? nameIdx : 3;
+  const cCrewCode = crewCodeIdx >= 0 ? crewCodeIdx : 4;
+  const cCrewName = crewNameIdx >= 0 ? crewNameIdx : 5;
+  const cRute = ruteIdx >= 0 ? ruteIdx : 6;
+
   const results = [];
   for (let i = 1; i < values.length; i++) {
     const row = values[i];
-    const account = (row[0] || "").toString().trim();
-    const kodeToko = (row[1] || "").toString().trim();
-    const namaToko = (row[2] || "").toString().trim();
-    const kodeCrew = (row[3] || "").toString().trim();
-    const namaCrew = (row[4] || "").toString().trim();
-    const rute = (row[5] || "").toString().trim();
+    const rowModul = (row[cMod] || "").toString().trim().toUpperCase().replace(/\s+/g, "");
+    const account = (row[cAcc] || "").toString().trim();
+    const kodeToko = (row[cCode] || "").toString().trim();
+    const namaToko = (row[cName] || "").toString().trim();
+    const kodeCrew = (row[cCrewCode] || "").toString().trim();
+    const namaCrew = (row[cCrewName] || "").toString().trim();
+    const rute = (row[cRute] || "").toString().trim().replace(/^rute\s*/i, "");
 
     if (!kodeToko && !namaToko) continue;
 
-    // Filter Rute jika parameter rute diberikan
-    if (ruteFilter && rute.toString() !== ruteFilter.toString()) {
+    if (cleanModule && rowModul && rowModul !== cleanModule) {
       continue;
     }
 
-    // Filter Kode Crew jika parameter crewCode diberikan
+    if (ruteFilter && rute.toString() !== ruteFilter.toString().replace(/^rute\s*/i, "")) {
+      continue;
+    }
+
     if (crewCodeFilter && kodeCrew !== crewCodeFilter.toString().trim()) {
       continue;
     }
 
     results.push({
+      modul: rowModul,
       account: account,
       kodeToko: kodeToko,
       namaToko: namaToko,
@@ -563,136 +475,148 @@ function fetchModuleSchedule(moduleName, ruteFilter, crewCodeFilter) {
   return results;
 }
 
-/**
- * Helper untuk format response JSON dengan CORS Header yang aman
- */
 function jsonResponse(data) {
   return ContentService.createTextOutput(JSON.stringify(data))
     .setMimeType(ContentService.MimeType.JSON);
 }
 
-/**
- * Scan semua spreadsheet modul (DK, LK, LP) dan kembalikan map:
- *   { [kodeToko]: [ { namaCrew, kodeCrew, modul, rute }, ... ] }
- * 
- * Array berisi SEMUA kunjungan ke toko tersebut (multi-visit support).
- * Frontend yang akan memutuskan: dikunci total (MDS lain) atau soft-block (re-visit).
- */
 function fetchAllClaimedStores(ruteFilter) {
-  // Map: kodeToko -> array of visit records
   const visitMap = {};
+  const targetRute = ruteFilter ? ruteFilter.toString().trim().replace(/^rute\s*/i, "") : null;
 
-  const groups = ["DK", "LK", "LP"];
+  try {
+    const ss = SpreadsheetApp.openById(CONFIG.UNIFIED_PIPELINE_ID);
+    const sheet = ss.getSheetByName(SHEET_NAMES.TARGET_ROUTE_SHEET) || ss.getSheets()[0];
+    const values = sheet.getDataRange().getValues();
 
-  for (const groupKey of groups) {
-    const groupConfig = CONFIG[groupKey];
-    if (!groupConfig || !groupConfig.MODULES) continue;
+    if (values.length < 2) return visitMap;
 
-    for (const moduleName in groupConfig.MODULES) {
-      const spreadsheetId = groupConfig.MODULES[moduleName];
+    const headers = values[0].map(h => (h || "").toString().toLowerCase().replace(/[^a-z0-9]/g, ""));
+    const modIdx = headers.findIndex(h => h.includes("modul") || h.includes("module"));
+    const accIdx = headers.findIndex(h => h.includes("account") || h.includes("tipe") || h.includes("type"));
+    const codeIdx = headers.findIndex(h => h.includes("kodetoko") || h.includes("storecode") || h === "code" || h.includes("kode"));
+    const nameIdx = headers.findIndex(h => h.includes("namatoko") || h.includes("storename") || h.includes("nama"));
+    const crewCodeIdx = headers.findIndex(h => h.includes("kodecrew") || h.includes("crewcode") || h.includes("idcrew"));
+    const crewNameIdx = headers.findIndex(h => h.includes("namacrew") || h.includes("crewname") || (h.includes("crew") && !h.includes("kode")));
+    const ruteIdx = headers.findIndex(h => h.includes("rute") || h.includes("route"));
 
-      try {
-        const ss = SpreadsheetApp.openById(spreadsheetId);
-        const sheet = ss.getSheetByName(SHEET_NAMES.MODULE_MASTER) || ss.getSheets()[0];
-        const values = sheet.getDataRange().getValues();
+    const cMod = modIdx >= 0 ? modIdx : 0;
+    const cAcc = accIdx >= 0 ? accIdx : 1;
+    const cCode = codeIdx >= 0 ? codeIdx : 2;
+    const cName = nameIdx >= 0 ? nameIdx : 3;
+    const cCrewCode = crewCodeIdx >= 0 ? crewCodeIdx : 4;
+    const cCrewName = crewNameIdx >= 0 ? crewNameIdx : 5;
+    const cRute = ruteIdx >= 0 ? ruteIdx : 6;
 
-        if (values.length < 2) continue;
+    for (let i = 1; i < values.length; i++) {
+      const row = values[i];
+      const kodeToko = (row[cCode] || "").toString().trim().toUpperCase();
+      if (!kodeToko) continue;
 
-        // Format kolom: 0:ACCOUNT | 1:KODE TOKO | 2:NAMA TOKO | 3:KODE CREW | 4:NAMA CREW | 5:RUTE
-        for (let i = 1; i < values.length; i++) {
-          const row = values[i];
-          const kodeToko = (row[1] || "").toString().trim();
-          if (!kodeToko) continue;
+      const rute = (row[cRute] || "").toString().trim().replace(/^rute\s*/i, "");
+      if (targetRute && rute !== targetRute) continue;
 
-          const rute = (row[5] || "").toString().trim();
-          const kodeCrew = (row[3] || "").toString().trim();
-          const namaCrew = (row[4] || "").toString().trim();
-          const account = (row[0] || "").toString().trim();
-          const namaToko = (row[2] || "").toString().trim();
+      const modul = (row[cMod] || "").toString().trim();
+      const account = (row[cAcc] || "").toString().trim();
+      const namaToko = (row[cName] || "").toString().trim();
+      const kodeCrew = (row[cCrewCode] || "").toString().trim();
+      const namaCrew = (row[cCrewName] || "").toString().trim();
 
-          if (!visitMap[kodeToko]) visitMap[kodeToko] = [];
+      if (!visitMap[kodeToko]) visitMap[kodeToko] = [];
 
-          visitMap[kodeToko].push({
-            kodeToko: kodeToko,
-            namaToko: namaToko,
-            account: account,
-            kodeCrew: kodeCrew,
-            namaCrew: namaCrew,
-            modul: moduleName,
-            rute: rute
-          });
-        }
-      } catch (err) {
-        Logger.log("Skip modul " + moduleName + ": " + err.toString());
-      }
+      visitMap[kodeToko].push({
+        kodeToko: kodeToko,
+        namaToko: namaToko,
+        account: account,
+        kodeCrew: kodeCrew,
+        namaCrew: namaCrew,
+        modul: modul,
+        rute: rute
+      });
     }
+  } catch (err) {
+    Logger.log("Error reading claimed stores from unified pipeline: " + err.toString());
   }
 
   return visitMap;
 }
 
-/**
- * Helper untuk menghapus 1 baris toko tertentu dari spreadsheet jadwal (Modul, External, Absen)
- */
 function deleteStoreFromAllSpreadsheets(moduleName, rute, crewCode, kodeToko) {
-  if (!moduleName || !rute || !kodeToko) {
-    throw new Error("Parameter module, rute, dan kodeToko wajib diisi");
+  if (!kodeToko) {
+    throw new Error("Parameter kodeToko wajib diisi");
   }
 
-  const cleanModule = moduleName.toUpperCase().replace(/\s+/g, "");
-  const groupKey = cleanModule.substring(0, 2);
-  const groupConfig = CONFIG[groupKey];
-  if (!groupConfig) throw new Error("Kategori modul tidak ditemukan");
-
-  const moduleSpreadsheetId = groupConfig.MODULES[cleanModule];
-  const externalSpreadsheetId = groupConfig.EXTERNAL_ID;
-  const absenSpreadsheetId = groupConfig.ABSEN_ID;
-
-  const targets = [
-    { id: moduleSpreadsheetId, sheet: SHEET_NAMES.MODULE_MASTER },
-    { id: externalSpreadsheetId, sheet: SHEET_NAMES.EXTERNAL_MASTER },
-    { id: absenSpreadsheetId, sheet: SHEET_NAMES.ABSEN }
-  ];
+  const cleanModule = moduleName ? moduleName.toUpperCase().replace(/\s+/g, "") : "";
+  const targetRute = rute ? rute.toString().trim().replace(/^rute\s*/i, "") : "";
+  const targetKode = kodeToko.toString().trim().toUpperCase();
+  const targetCrew = crewCode ? crewCode.toString().trim() : "";
 
   const results = {};
-  targets.forEach(t => {
-    try {
-      if (!t.id) return;
-      const ss = SpreadsheetApp.openById(t.id);
-      const sheet = ss.getSheetByName(t.sheet) || ss.getSheets()[0];
-      const values = sheet.getDataRange().getValues();
 
-      // Scan dari baris paling bawah ke atas agar index baris tetap valid saat di-delete
+  try {
+    const ss = SpreadsheetApp.openById(CONFIG.UNIFIED_PIPELINE_ID);
+    const sheet = ss.getSheetByName(SHEET_NAMES.TARGET_ROUTE_SHEET) || ss.getSheets()[0];
+    const values = sheet.getDataRange().getValues();
+
+    const headers = values[0].map(h => (h || "").toString().toLowerCase().replace(/[^a-z0-9]/g, ""));
+    const modIdx = headers.findIndex(h => h.includes("modul") || h.includes("module"));
+    const codeIdx = headers.findIndex(h => h.includes("kodetoko") || h.includes("storecode") || h === "code" || h.includes("kode"));
+    const crewCodeIdx = headers.findIndex(h => h.includes("kodecrew") || h.includes("crewcode") || h.includes("idcrew"));
+    const ruteIdx = headers.findIndex(h => h.includes("rute") || h.includes("route"));
+
+    const cMod = modIdx >= 0 ? modIdx : 0;
+    const cCode = codeIdx >= 0 ? codeIdx : 2;
+    const cCrewCode = crewCodeIdx >= 0 ? crewCodeIdx : 4;
+    const cRute = ruteIdx >= 0 ? ruteIdx : 6;
+
+    for (let i = values.length - 1; i >= 1; i--) {
+      const row = values[i];
+      const rowKode = (row[cCode] || "").toString().trim().toUpperCase();
+      const rowRute = (row[cRute] || "").toString().trim().replace(/^rute\s*/i, "");
+      const rowCrew = (row[cCrewCode] || "").toString().trim();
+      const rowMod = (row[cMod] || "").toString().trim().toUpperCase().replace(/\s+/g, "");
+
+      const matchKode = rowKode === targetKode;
+      const matchRute = !targetRute || rowRute === targetRute;
+      const matchCrew = !targetCrew || rowCrew === targetCrew;
+      const matchMod = !cleanModule || rowMod === cleanModule;
+
+      if (matchKode && matchRute && matchCrew && matchMod) {
+        sheet.deleteRow(i + 1);
+      }
+    }
+    results.pipeline = true;
+  } catch (e) {
+    results.pipeline = e.toString();
+  }
+
+  try {
+    const ssMaster = SpreadsheetApp.openById(CONFIG.MASTER_DATABASE_ID);
+    const rekapSheet = ssMaster.getSheetByName("Rekap_Rute");
+    if (rekapSheet) {
+      const values = rekapSheet.getDataRange().getValues();
       for (let i = values.length - 1; i >= 1; i--) {
         const row = values[i];
         const rowKode = (row[1] || "").toString().trim().toUpperCase();
-        const rowRute = (row[5] || "").toString().trim();
         const rowCrew = (row[3] || "").toString().trim();
+        const rowRute = (row[5] || "").toString().trim().replace(/^rute\s*/i, "");
 
-        const matchKode = rowKode === kodeToko.toString().trim().toUpperCase();
-        const matchRute = rowRute === rute.toString().trim();
-        const matchCrew = !crewCode || rowCrew === crewCode.toString().trim();
-
-        if (matchKode && matchRute && matchCrew) {
-          sheet.deleteRow(i + 1); // deleteRow menggunakan 1-based index
+        if (rowKode === targetKode && (!targetRute || rowRute === targetRute) && (!targetCrew || rowCrew === targetCrew)) {
+          rekapSheet.deleteRow(i + 1);
         }
       }
-      results[t.sheet] = true;
-    } catch (e) {
-      results[t.sheet] = e.toString();
+      results.rekap = true;
     }
-  });
+  } catch (e) {
+    results.rekap = e.toString();
+  }
 
   return results;
 }
 
-/**
- * Helper untuk tracking & monitoring status input MDS realtime per rute
- */
 function fetchMdsInputStatus(ruteFilter) {
   const targetRute = (ruteFilter || new Date().getDate()).toString().trim().replace(/^rute\s*/i, "");
   
-  // Ambil daftar kru valid (kecualikan Admin / ID RO036 dari KPI monitoring)
   const allCrews = fetchCrewList().filter(c => {
     const id = (c.id || "").toString().trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
     const nama = (c.nama || "").toLowerCase();
@@ -703,38 +627,50 @@ function fetchMdsInputStatus(ruteFilter) {
     return true;
   });
 
-  // Map crew lookup by ID dan Nama untuk validasi cepat
   const validCrewIdSet = new Set(allCrews.map(c => c.id.toString().trim().toUpperCase()));
   const validCrewNameMap = new Map();
   allCrews.forEach(c => {
     if (c.nama) validCrewNameMap.set(c.nama.toString().trim().toLowerCase(), c);
   });
 
-  const submissionMap = {}; // key: crewId -> { kodeCrew, namaCrew, modul, storeCount, stores: [] }
-  const seenStoreVisitSet = new Set(); // Key de-duplikasi: KODETOKO_RUTE_CREWID
+  const submissionMap = {};
+  const seenStoreVisitSet = new Set();
 
-  // 1. Baca transaksi resmi dari sheet Rekap_Rute
   try {
-    const ss = SpreadsheetApp.openById(CONFIG.MASTER_DATABASE_ID);
-    const sheet = ss.getSheetByName(SHEET_NAMES.REKAP) || ss.getSheetByName("Rekap_Rute");
-    
-    if (sheet) {
-      const values = sheet.getDataRange().getValues();
+    const ss = SpreadsheetApp.openById(CONFIG.UNIFIED_PIPELINE_ID);
+    const sheet = ss.getSheetByName(SHEET_NAMES.TARGET_ROUTE_SHEET) || ss.getSheets()[0];
+    const values = sheet.getDataRange().getValues();
+
+    if (values.length >= 2) {
+      const headers = values[0].map(h => (h || "").toString().toLowerCase().replace(/[^a-z0-9]/g, ""));
+      const modIdx = headers.findIndex(h => h.includes("modul") || h.includes("module"));
+      const codeIdx = headers.findIndex(h => h.includes("kodetoko") || h.includes("storecode") || h === "code" || h.includes("kode"));
+      const nameIdx = headers.findIndex(h => h.includes("namatoko") || h.includes("storename") || h.includes("nama"));
+      const crewCodeIdx = headers.findIndex(h => h.includes("kodecrew") || h.includes("crewcode") || h.includes("idcrew"));
+      const crewNameIdx = headers.findIndex(h => h.includes("namacrew") || h.includes("crewname") || (h.includes("crew") && !h.includes("kode")));
+      const ruteIdx = headers.findIndex(h => h.includes("rute") || h.includes("route"));
+
+      const cMod = modIdx >= 0 ? modIdx : 0;
+      const cCode = codeIdx >= 0 ? codeIdx : 2;
+      const cName = nameIdx >= 0 ? nameIdx : 3;
+      const cCrewCode = crewCodeIdx >= 0 ? crewCodeIdx : 4;
+      const cCrewName = crewNameIdx >= 0 ? crewNameIdx : 5;
+      const cRute = ruteIdx >= 0 ? ruteIdx : 6;
+
       for (let i = 1; i < values.length; i++) {
         const row = values[i];
-        const rute = (row[5] || "").toString().trim().replace(/^rute\s*/i, "");
+        const rute = (row[cRute] || "").toString().trim().replace(/^rute\s*/i, "");
         if (rute !== targetRute) continue;
 
-        const kodeCrew = (row[3] || "").toString().trim().toUpperCase();
-        const namaCrew = (row[4] || "").toString().trim();
-        const kodeToko = (row[1] || "").toString().trim().toUpperCase();
-        const namaToko = (row[2] || "").toString().trim();
-        const modul = (row[6] || "").toString().trim();
+        const kodeCrew = (row[cCrewCode] || "").toString().trim().toUpperCase();
+        const namaCrew = (row[cCrewName] || "").toString().trim();
+        const kodeToko = (row[cCode] || "").toString().trim().toUpperCase();
+        const namaToko = (row[cName] || "").toString().trim();
+        const modul = (row[cMod] || "").toString().trim();
 
         if (kodeCrew === "RO036" || namaCrew.toLowerCase().includes("yohandi")) continue;
         if (!kodeToko) continue;
 
-        // Cari identitas crew resmi
         let matchedCrew = null;
         if (validCrewIdSet.has(kodeCrew)) {
           matchedCrew = allCrews.find(c => c.id.toString().trim().toUpperCase() === kodeCrew);
@@ -745,7 +681,6 @@ function fetchMdsInputStatus(ruteFilter) {
         const crewKey = matchedCrew ? matchedCrew.id : (kodeCrew || namaCrew.toLowerCase());
         if (!crewKey) continue;
 
-        // De-duplikasi otomatis: 1 Toko per MDS per Rute hanya dihitung 1x
         const visitKey = `${kodeToko}_${rute}_${crewKey}`;
         if (seenStoreVisitSet.has(visitKey)) continue;
         seenStoreVisitSet.add(visitKey);
@@ -765,81 +700,7 @@ function fetchMdsInputStatus(ruteFilter) {
       }
     }
   } catch (err) {
-    Logger.log("Error reading Rekap_Rute: " + err.toString());
-  }
-
-  // 2. Scan spreadsheet masing-masing modul untuk mendeteksi inputan manual di Google Sheet
-  const groups = ["DK", "LK", "LP"];
-  for (let g = 0; g < groups.length; g++) {
-    const groupKey = groups[g];
-    const groupConfig = CONFIG[groupKey];
-    if (!groupConfig) continue;
-
-    for (const moduleName in groupConfig.MODULES) {
-      const spreadsheetId = groupConfig.MODULES[moduleName];
-      if (!spreadsheetId) continue;
-
-      try {
-        const ss = SpreadsheetApp.openById(spreadsheetId);
-        const sheet = ss.getSheetByName(SHEET_NAMES.MODULE_MASTER) || ss.getSheets()[0];
-        const values = sheet.getDataRange().getValues();
-        if (values.length < 2) continue;
-
-        for (let i = 1; i < values.length; i++) {
-          const row = values[i];
-          const rute = (row[5] || "").toString().trim().replace(/^rute\s*/i, "");
-          if (rute !== targetRute) continue;
-
-          const kodeCrew = (row[3] || "").toString().trim().toUpperCase();
-          const namaCrew = (row[4] || "").toString().trim();
-          const kodeToko = (row[1] || "").toString().trim().toUpperCase();
-          const namaToko = (row[2] || "").toString().trim();
-
-          if (kodeCrew === "RO036" || namaCrew.toLowerCase().includes("yohandi")) continue;
-          if (!kodeToko) continue;
-
-          // Verifikasi apakah kru terdaftar resmi
-          let matchedCrew = null;
-          if (validCrewIdSet.has(kodeCrew)) {
-            matchedCrew = allCrews.find(c => c.id.toString().trim().toUpperCase() === kodeCrew);
-          } else if (validCrewNameMap.has(namaCrew.toLowerCase())) {
-            matchedCrew = validCrewNameMap.get(namaCrew.toLowerCase());
-          }
-
-          if (!matchedCrew) continue; // Abaikan template atau baris kotor
-
-          // Validasi ketat: Hanya terima baris jika modul kru sesuai dengan spreadsheet modul yang di-scan
-          const cleanCrewModul = (matchedCrew.modul || "").toUpperCase().replace(/\s+/g, "");
-          const cleanSheetModul = moduleName.toUpperCase().replace(/\s+/g, "");
-          if (cleanCrewModul && cleanCrewModul !== cleanSheetModul) {
-            continue; // Tolak baris nyasar dari template modul lain
-          }
-
-          const crewKey = matchedCrew.id;
-          const visitKey = `${kodeToko}_${rute}_${crewKey}`;
-
-          // Jika toko ini belum tercatat (misal diinput manual via Google Sheet), masukkan!
-          if (!seenStoreVisitSet.has(visitKey)) {
-            seenStoreVisitSet.add(visitKey);
-
-            if (!submissionMap[crewKey]) {
-              submissionMap[crewKey] = {
-                kodeCrew: matchedCrew.id,
-                namaCrew: matchedCrew.nama,
-                modul: matchedCrew.modul || moduleName,
-                storeCount: 0,
-                stores: []
-              };
-            }
-
-            submissionMap[crewKey].storeCount += 1;
-            submissionMap[crewKey].stores.push({ kodeToko, namaToko });
-          }
-        }
-      } catch (err) {
-        Logger.log("Error scanning module " + moduleName + ": " + err.toString());
-      }
-    }
+    Logger.log("Error reading monitoring from Unified Pipeline: " + err.toString());
   }
 
   const submitted = [];
@@ -870,7 +731,6 @@ function fetchMdsInputStatus(ruteFilter) {
     }
   });
 
-  // Urutkan berdasarkan Modul & Nama
   submitted.sort((a, b) => (a.modul + a.nama).localeCompare(b.modul + b.nama));
   pending.sort((a, b) => (a.modul + a.nama).localeCompare(b.modul + b.nama));
 
@@ -890,63 +750,13 @@ function fetchMdsInputStatus(ruteFilter) {
   };
 }
 
-/**
- * ==========================================================
- * FUNGSI TEST MANUAL GOOGLE APPS SCRIPT
- * ==========================================================
- * Cara Menjalankan:
- * 1. Di editor Google Apps Script, pilih fungsi 'testMonitoringMds' di dropdown toolbar atas
- * 2. Klik tombol ▶️ 'Jalankan / Run'
- * 3. Buka tab 'Log Eksekusi' di bagian bawah untuk melihat hasil monitoring realtime
- */
 function testMonitoringMds() {
-  const targetRute = "3"; // Ganti nomor rute yang ingin di-test (misal: "3" atau "4")
-  Logger.log("==========================================");
-  Logger.log("🧪 MEMULAI TEST MONITORING MDS RUTE " + targetRute);
-  Logger.log("==========================================");
-  
+  const targetRute = "3";
   const result = fetchMdsInputStatus(targetRute);
-  
-  Logger.log("📅 Target Rute         : Rute " + result.rute);
-  Logger.log("👥 Total MDS Lapangan  : " + result.totalCrew + " Orang");
-  Logger.log("✅ Sudah Input         : " + result.submittedCount + " Orang (" + result.percentage + "%)");
-  Logger.log("⏳ Belum Input         : " + result.pendingCount + " Orang");
-  
-  Logger.log("\n--- [DAFTAR MDS SUDAH INPUT] ---");
-  if (result.submitted.length === 0) {
-    Logger.log("(Belum ada yang input)");
-  } else {
-    result.submitted.forEach(function(c, i) {
-      Logger.log((i + 1) + ". [" + c.modul + "] " + c.nama + " (" + c.id + ") -> " + c.storeCount + " Toko");
-    });
-  }
-  
-  Logger.log("\n--- [DAFTAR MDS BELUM INPUT (Contoh 10 Teratas)] ---");
-  result.pending.slice(0, 10).forEach(function(c, i) {
-    Logger.log((i + 1) + ". [" + c.modul + "] " + c.nama + " (" + c.id + ")");
-  });
-  if (result.pending.length > 10) {
-    Logger.log("... dan " + (result.pending.length - 10) + " MDS lainnya.");
-  }
-  
-  Logger.log("\n==========================================");
-  Logger.log("🎉 TEST SELESAI DENGAN SUKSES!");
-  Logger.log("==========================================");
+  Logger.log(JSON.stringify(result, null, 2));
 }
 
-/**
- * ==========================================================
- * FUNGSI SINKRONISASI MASSAL SEMUA MODUL KE REKAP_RUTE
- * ==========================================================
- * Jalankan fungsi 'syncAllModuleInputsToRekap' ini sekali klik di Apps Script
- * untuk menarik & menyalin SEMUA riwayat inputan dari tanggal 1 sampai sekarang
- * dari 15 spreadsheet modul ke sheet 'Rekap_Rute' (dengan auto-deduplikasi).
- */
 function syncAllModuleInputsToRekap() {
-  Logger.log("==========================================================");
-  Logger.log("🔄 MEMULAI SINKRONISASI MASSAL SEMUA MODUL KE REKAP_RUTE");
-  Logger.log("==========================================================");
-
   const allCrews = fetchCrewList().filter(c => {
     const id = (c.id || "").toString().trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
     const nama = (c.nama || "").toLowerCase();
@@ -976,7 +786,6 @@ function syncAllModuleInputsToRekap() {
       .setFontColor("#ffffff");
   }
 
-  // Baca data yang sudah ada di Rekap_Rute untuk menghindari duplikat
   const existingValues = sheetRekap.getDataRange().getValues();
   const existingKeys = new Set();
   for (let i = 1; i < existingValues.length; i++) {
@@ -991,108 +800,83 @@ function syncAllModuleInputsToRekap() {
 
   const rowsToInsert = [];
   const nowFormatted = Utilities.formatDate(new Date(), "Asia/Jakarta", "yyyy-MM-dd HH:mm:ss");
-  const groups = ["DK", "LK", "LP"];
 
-  for (let g = 0; g < groups.length; g++) {
-    const groupKey = groups[g];
-    const groupConfig = CONFIG[groupKey];
-    if (!groupConfig) continue;
+  try {
+    const ssMod = SpreadsheetApp.openById(CONFIG.UNIFIED_PIPELINE_ID);
+    const sheetMod = ssMod.getSheetByName(SHEET_NAMES.TARGET_ROUTE_SHEET) || ssMod.getSheets()[0];
+    const values = sheetMod.getDataRange().getValues();
 
-    for (const moduleName in groupConfig.MODULES) {
-      const spreadsheetId = groupConfig.MODULES[moduleName];
-      if (!spreadsheetId) continue;
+    if (values.length >= 2) {
+      const headers = values[0].map(h => (h || "").toString().toLowerCase().replace(/[^a-z0-9]/g, ""));
+      const modIdx = headers.findIndex(h => h.includes("modul") || h.includes("module"));
+      const accIdx = headers.findIndex(h => h.includes("account") || h.includes("tipe") || h.includes("type"));
+      const codeIdx = headers.findIndex(h => h.includes("kodetoko") || h.includes("storecode") || h === "code" || h.includes("kode"));
+      const nameIdx = headers.findIndex(h => h.includes("namatoko") || h.includes("storename") || h.includes("nama"));
+      const crewCodeIdx = headers.findIndex(h => h.includes("kodecrew") || h.includes("crewcode") || h.includes("idcrew"));
+      const crewNameIdx = headers.findIndex(h => h.includes("namacrew") || h.includes("crewname") || (h.includes("crew") && !h.includes("kode")));
+      const ruteIdx = headers.findIndex(h => h.includes("rute") || h.includes("route"));
 
-      try {
-        const ssMod = SpreadsheetApp.openById(spreadsheetId);
-        const sheetMod = ssMod.getSheetByName(SHEET_NAMES.MODULE_MASTER) || ssMod.getSheets()[0];
-        const values = sheetMod.getDataRange().getValues();
+      const cMod = modIdx >= 0 ? modIdx : 0;
+      const cAcc = accIdx >= 0 ? accIdx : 1;
+      const cCode = codeIdx >= 0 ? codeIdx : 2;
+      const cName = nameIdx >= 0 ? nameIdx : 3;
+      const cCrewCode = crewCodeIdx >= 0 ? crewCodeIdx : 4;
+      const cCrewName = crewNameIdx >= 0 ? crewNameIdx : 5;
+      const cRute = ruteIdx >= 0 ? ruteIdx : 6;
 
-        if (values.length < 2) continue;
+      for (let i = 1; i < values.length; i++) {
+        const row = values[i];
+        const rowModul = (row[cMod] || "").toString().trim().toUpperCase().replace(/\s+/g, "");
+        const account = (row[cAcc] || "ALFAMART").toString().trim().toUpperCase();
+        const kodeToko = (row[cCode] || "").toString().trim().toUpperCase();
+        const namaToko = (row[cName] || "").toString().trim();
+        const kodeCrew = (row[cCrewCode] || "").toString().trim().toUpperCase();
+        const namaCrew = (row[cCrewName] || "").toString().trim();
+        const rute = (row[cRute] || "").toString().trim().replace(/^rute\s*/i, "");
 
-        let addedFromThisModule = 0;
-        for (let i = 1; i < values.length; i++) {
-          const row = values[i];
-          const account = (row[0] || "ALFAMART").toString().trim().toUpperCase();
-          const kodeToko = (row[1] || "").toString().trim().toUpperCase();
-          const namaToko = (row[2] || "").toString().trim();
-          const kodeCrew = (row[3] || "").toString().trim().toUpperCase();
-          const namaCrew = (row[4] || "").toString().trim();
-          const rute = (row[5] || "").toString().trim().replace(/^rute\s*/i, "");
+        if (!kodeToko || !rute) continue;
+        if (kodeCrew === "RO036" || namaCrew.toLowerCase().includes("yohandi")) continue;
 
-          if (!kodeToko || !rute) continue;
-          if (kodeCrew === "RO036" || namaCrew.toLowerCase().includes("yohandi")) continue;
-
-          // Validasi crew resmi
-          let matchedCrew = null;
-          if (validCrewIdSet.has(kodeCrew)) {
-            matchedCrew = allCrews.find(c => c.id.toString().trim().toUpperCase() === kodeCrew);
-          } else if (validCrewNameMap.has(namaCrew.toLowerCase())) {
-            matchedCrew = validCrewNameMap.get(namaCrew.toLowerCase());
-          }
-
-          if (!matchedCrew) continue; // Abaikan baris template yang tidak valid
-
-          // Validasi ketat: Hanya sinkronkan data jika modul kru sesuai dengan spreadsheet modulnya
-          const cleanCrewModul = (matchedCrew.modul || "").toUpperCase().replace(/\s+/g, "");
-          const cleanSheetModul = moduleName.toUpperCase().replace(/\s+/g, "");
-          if (cleanCrewModul && cleanCrewModul !== cleanSheetModul) {
-            continue; // Tolak baris nyasar dari template modul lain
-          }
-
-          const finalCrewId = matchedCrew.id;
-          const finalCrewName = matchedCrew.nama;
-          const finalModul = matchedCrew.modul || moduleName;
-
-          const key = `${kodeToko}_${rute}_${finalCrewId}`;
-          if (existingKeys.has(key)) continue; // Hindari duplikasi
-
-          existingKeys.add(key);
-          rowsToInsert.push([
-            account,
-            kodeToko,
-            namaToko,
-            finalCrewId,
-            finalCrewName,
-            rute,
-            finalModul,
-            "Kunjungan Pertama",
-            "-",
-            nowFormatted
-          ]);
-          addedFromThisModule++;
+        let matchedCrew = null;
+        if (validCrewIdSet.has(kodeCrew)) {
+          matchedCrew = allCrews.find(c => c.id.toString().trim().toUpperCase() === kodeCrew);
+        } else if (validCrewNameMap.has(namaCrew.toLowerCase())) {
+          matchedCrew = validCrewNameMap.get(namaCrew.toLowerCase());
         }
 
-        if (addedFromThisModule > 0) {
-          Logger.log(`✅ Modul ${moduleName}: Mengambil ${addedFromThisModule} baris kunjungan`);
-        }
-      } catch (err) {
-        Logger.log(`⚠️ Gagal membaca modul ${moduleName}: ${err.toString()}`);
+        const finalCrewId = matchedCrew ? matchedCrew.id : kodeCrew;
+        const finalCrewName = matchedCrew ? matchedCrew.nama : namaCrew;
+        const finalModul = matchedCrew ? matchedCrew.modul : rowModul;
+
+        const key = `${kodeToko}_${rute}_${finalCrewId}`;
+        if (existingKeys.has(key)) continue;
+
+        existingKeys.add(key);
+        rowsToInsert.push([
+          account,
+          kodeToko,
+          namaToko,
+          finalCrewId,
+          finalCrewName,
+          rute,
+          finalModul,
+          "Kunjungan Pertama",
+          "-",
+          nowFormatted
+        ]);
       }
     }
+  } catch (err) {
+    Logger.log("Error reading Unified Pipeline: " + err.toString());
   }
 
   if (rowsToInsert.length > 0) {
     const lastRow = sheetRekap.getLastRow();
     sheetRekap.getRange(lastRow + 1, 1, rowsToInsert.length, rowsToInsert[0].length).setValues(rowsToInsert);
-    Logger.log("==========================================================");
-    Logger.log(`🎉 BERHASIL MENYINKRONKAN ${rowsToInsert.length} BARIS KE REKAP_RUTE!`);
-    Logger.log("==========================================================");
-  } else {
-    Logger.log("==========================================================");
-    Logger.log("ℹ️ Semua data dari 15 spreadsheet modul sudah tersinkronkan penuh ke Rekap_Rute.");
-    Logger.log("==========================================================");
   }
 }
 
-/**
- * ==========================================================
- * FUNGSI BERSIHKAN & SINKRONKAN ULANG REKAP_RUTE SECARA BERSIH
- * ==========================================================
- * Menghapus baris kotor/nyasar di sheet 'Rekap_Rute', lalu mengisi ulang
- * hanya data kunjungan yang 100% valid sesuai modul resmi masing-masing MDS.
- */
 function cleanAndResyncRekapRute() {
-  Logger.log("🧹 Mengosongkan data lama di Rekap_Rute...");
   const ssMaster = SpreadsheetApp.openById(CONFIG.MASTER_DATABASE_ID);
   const sheetRekap = ssMaster.getSheetByName("Rekap_Rute");
   
@@ -1100,10 +884,5 @@ function cleanAndResyncRekapRute() {
     sheetRekap.deleteRows(2, sheetRekap.getLastRow() - 1);
   }
   
-  Logger.log("🔄 Menjalankan sinkronisasi ulang bersih...");
   syncAllModuleInputsToRekap();
 }
-
-
-
-

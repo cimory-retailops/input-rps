@@ -55,6 +55,7 @@ function cacheDOMElements() {
   elements.ruteDatePicker = document.getElementById("ruteDatePicker");
   elements.routeDateDisplay = document.getElementById("routeDateDisplay");
   elements.searchInput = document.getElementById("searchInput");
+  elements.btnSearchSubmit = document.getElementById("btnSearchSubmit");
   elements.searchClear = document.getElementById("searchClear");
   elements.searchResultsFloating = document.getElementById("searchResultsFloating");
   elements.filterPills = document.querySelectorAll(".filter-pill");
@@ -689,51 +690,43 @@ async function triggerMasterSyncWithOverlay() {
  * Event Bindings
  */
 function bindEvents() {
-  // Search Input Debounce (Minimal 4 Karakter agar Super Ringan & Cepat)
-  let searchTimer;
+  // Search Input: HANYA atur tombol clear saat mengetik (TIDAK query database di background)
   if (elements.searchInput) {
     elements.searchInput.addEventListener("input", (e) => {
       const val = e.target.value.trim();
       if (elements.searchClear) {
         elements.searchClear.classList.toggle("visible", val.length > 0);
       }
-      clearTimeout(searchTimer);
-
+      // Jika input dikosongkan secara manual, reset hasil pencarian
       if (val.length === 0) {
         performSearch("");
-        return;
       }
+    });
 
-      if (val.length < 4) {
-        // Beri petunjuk jumlah sisa karakter
-        if (elements.searchResultsFloating) {
-          elements.searchResultsFloating.style.display = "flex";
-          elements.searchResultsFloating.innerHTML = `
-            <div style="padding: 14px 12px; text-align: center; color: var(--text-muted); font-size: 11.5px; line-height: 1.4;">
-              <i data-lucide="search" style="width: 18px; height: 18px; color: var(--primary); margin-bottom: 4px;"></i>
-              <div>Ketik <strong>${4 - val.length} karakter lagi</strong> untuk mencari...</div>
-              <div style="font-size: 10px; color: var(--text-muted); margin-top: 2px;">(Min. 4 karakter contoh: <em>1V01</em> atau <em>Sudirman</em>)</div>
-            </div>
-          `;
-          if (window.lucide) lucide.createIcons();
-        }
-        return;
+    // Cari saat tekan tombol Enter di keyboard / HP
+    elements.searchInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        elements.searchInput.blur(); // tutup keyboard di mobile
+        performSearch(elements.searchInput.value);
       }
-
-      // Minimal 4 karakter terpenuhi -> eksekusi search
-      searchTimer = setTimeout(() => {
-        performSearch(val);
-      }, 180);
     });
 
     elements.searchInput.addEventListener("focus", () => {
-      if (elements.searchResultsFloating && elements.searchInput.value.trim().length > 0) {
+      if (elements.searchResultsFloating && state.searchResults && state.searchResults.length > 0) {
         elements.searchResultsFloating.style.display = "flex";
       }
     });
   }
 
-  // Clear Search
+  // Tombol Cari (Submit Button)
+  if (elements.btnSearchSubmit) {
+    elements.btnSearchSubmit.addEventListener("click", () => {
+      performSearch(elements.searchInput ? elements.searchInput.value : "");
+    });
+  }
+
+  // Clear Search (Tombol X)
   if (elements.searchClear) {
     elements.searchClear.addEventListener("click", () => {
       elements.searchInput.value = "";
@@ -749,7 +742,10 @@ function bindEvents() {
       elements.filterPills.forEach(p => p.classList.remove("active"));
       pill.classList.add("active");
       state.accountFilter = pill.getAttribute("data-account") || "ALL";
-      performSearch(elements.searchInput ? elements.searchInput.value : "");
+      const q = elements.searchInput ? elements.searchInput.value.trim() : "";
+      if (q.length > 0) {
+        performSearch(q);
+      }
     });
   });
 
@@ -954,32 +950,81 @@ window.switchAppView = function (viewName) {
  * Pencarian Toko di IndexedDB & Render ke Peta + Floating List
  */
 async function performSearch(query) {
-  try {
-    const cleanQ = (query || "").trim();
-    if (cleanQ.length > 0 && cleanQ.length < 4) {
-      return; // Jangan jalankan query database 34k jika di bawah 4 karakter
-    }
+  const cleanQ = (query || "").trim();
 
-    const isSearching = cleanQ.length >= 4;
-    const results = isSearching ? await searchStores({
+  // Jika pencarian kosong, bersihkan hasil dan peta
+  if (cleanQ.length === 0) {
+    state.searchResults = [];
+    renderFloatingSearchResults([], false);
+    if (markerClusterGroup) markerClusterGroup.clearLayers();
+    renderSelectedRouteMarkersAndPolyline(Array.from(state.selectedStores.values()));
+    return;
+  }
+
+  const submitBtn = elements.btnSearchSubmit;
+
+  // Aktifkan State Loading pada Tombol & Drawer
+  if (submitBtn) {
+    submitBtn.classList.add("is-loading");
+    submitBtn.disabled = true;
+    submitBtn.innerHTML = `
+      <i data-lucide="loader-2" class="spin" style="width: 13px; height: 13px;"></i>
+      <span>Mencari...</span>
+    `;
+    if (window.lucide) lucide.createIcons();
+  }
+
+  if (elements.searchResultsFloating) {
+    elements.searchResultsFloating.style.display = "flex";
+    elements.searchResultsFloating.innerHTML = `
+      <div style="padding: 20px 12px; text-align: center; color: var(--text-muted); font-size: 12px;">
+        <i data-lucide="loader-2" class="spin" style="width: 22px; height: 22px; color: var(--primary); margin-bottom: 6px;"></i>
+        <div style="font-weight: 600; color: var(--text-main);">Mencari "${escapeHtml(cleanQ)}"...</div>
+        <div style="font-size: 11px; color: var(--text-muted); margin-top: 3px;">Memeriksa database toko...</div>
+      </div>
+    `;
+    if (window.lucide) lucide.createIcons();
+  }
+
+  try {
+    // Beri sedikit frame delay agar animasi spinner tampak responsif di mata user
+    await new Promise(r => setTimeout(r, 100));
+
+    const results = await searchStores({
       query: cleanQ,
       accountFilter: state.accountFilter,
       limit: 60
-    }) : [];
+    });
 
     state.searchResults = results;
-    renderFloatingSearchResults(results, isSearching);
+    renderFloatingSearchResults(results, true);
+    renderMapMarkers(results, true);
 
-    if (isSearching) {
-      // Tampilkan preview marker toko yang cocok dengan pencarian
-      renderMapMarkers(results, true);
-    } else {
-      // Mode Peta Bersih: Hapus preview pencarian, HANYA tampilkan pin toko terpilih
-      if (markerClusterGroup) markerClusterGroup.clearLayers();
-      renderSelectedRouteMarkersAndPolyline(Array.from(state.selectedStores.values()));
+    // Jika ada hasil yang memiliki koordinat GPS, geser peta ke hasil pertama secara halus
+    const firstWithGps = results.find(s => s.lat && s.lon && !isNaN(Number(s.lat)) && !isNaN(Number(s.lon)) && (Number(s.lat) !== 0 || Number(s.lon) !== 0));
+    if (firstWithGps && map) {
+      map.panTo([Number(firstWithGps.lat), Number(firstWithGps.lon)], { animate: true, duration: 0.8 });
     }
   } catch (err) {
     console.error("Search error:", err);
+    if (elements.searchResultsFloating) {
+      elements.searchResultsFloating.innerHTML = `
+        <div style="padding: 14px 12px; text-align: center; color: var(--danger); font-size: 12px;">
+          Gagal mencari toko: ${escapeHtml(err.message || "Error database")}
+        </div>
+      `;
+    }
+  } finally {
+    // Kembalikan Tombol ke State Normal
+    if (submitBtn) {
+      submitBtn.classList.remove("is-loading");
+      submitBtn.disabled = false;
+      submitBtn.innerHTML = `
+        <i data-lucide="search" style="width: 13px; height: 13px;"></i>
+        <span>Cari</span>
+      `;
+      if (window.lucide) lucide.createIcons();
+    }
   }
 }
 
@@ -1196,7 +1241,7 @@ window.toggleStoreSelection = function (kodeToko, account = "") {
     const selectedArray = Array.from(state.selectedStores.values());
     renderMapMarkers(state.searchResults, false);
     renderSelectedRouteMarkersAndPolyline(selectedArray);
-    renderFloatingSearchResults(state.searchResults, false);
+    renderFloatingSearchResults(state.searchResults, state.searchResults && state.searchResults.length > 0);
     updateFloatingBar();
     map.closePopup();
     return;
@@ -1259,15 +1304,12 @@ window.toggleStoreSelection = function (kodeToko, account = "") {
 
   renderMapMarkers(state.searchResults, false);
   renderSelectedRouteMarkersAndPolyline(selectedArray);
-  renderFloatingSearchResults(state.searchResults, false);
+  renderFloatingSearchResults(state.searchResults, state.searchResults && state.searchResults.length > 0);
   updateFloatingBar();
   map.closePopup();
 
-  if (targetStore && targetStore.lat && targetStore.lon) {
-    map.flyTo([targetStore.lat, targetStore.lon], 16, { duration: 1.0 });
-    if (!visitStatus.isRevisitTooSoon && !visitStatus.isRevisitAllowed) {
-      showToast(`Urutan #${currentCount}: ${targetStore.namaToko || targetStore.kodeToko} masuk Rute ${state.currentRute}`, "success");
-    }
+  if (!visitStatus.isRevisitTooSoon && !visitStatus.isRevisitAllowed) {
+    showToast(`Urutan #${currentCount}: ${targetStore.namaToko || targetStore.kodeToko} masuk Rute ${state.currentRute}`, "success");
   }
 };
 

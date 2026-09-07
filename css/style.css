@@ -649,7 +649,7 @@ body {
 .search-input {
   width: 100%;
   height: 40px;
-  padding: 0 38px 0 38px;
+  padding: 0 100px 0 36px;
   background: var(--bg-main);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
@@ -667,17 +667,72 @@ body {
 
 .search-clear {
   position: absolute;
-  right: 10px;
+  right: 74px;
   background: none;
   border: none;
   color: var(--text-light);
   cursor: pointer;
   padding: 4px;
   display: none;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  transition: color var(--trans-fast);
+}
+
+.search-clear:hover {
+  color: var(--text-main);
 }
 
 .search-clear.visible {
   display: flex;
+}
+
+.btn-search-submit {
+  position: absolute;
+  right: 4px;
+  height: 32px;
+  padding: 0 12px;
+  background: linear-gradient(135deg, var(--primary), #4338ca);
+  color: #ffffff;
+  border: none;
+  border-radius: var(--radius-md);
+  font-size: 12px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  cursor: pointer;
+  box-shadow: 0 2px 6px rgba(79, 70, 229, 0.35);
+  transition: all var(--trans-fast);
+  user-select: none;
+}
+
+.btn-search-submit:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 10px rgba(79, 70, 229, 0.45);
+}
+
+.btn-search-submit:active {
+  transform: scale(0.96);
+}
+
+.btn-search-submit:disabled,
+.btn-search-submit.is-loading {
+  opacity: 0.85;
+  cursor: wait;
+  pointer-events: none;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.spin {
+  animation: spin 0.8s linear infinite;
+  display: inline-block;
+  transform-origin: center center;
 }
 
 .filter-scroll {
